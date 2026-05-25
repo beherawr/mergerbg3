@@ -167,8 +167,8 @@ class WorkspacePage(QWizardPage):
         form.addRow("Workspace folder:", ws_widget)
 
         ws_hint = QLabel(
-            "<i>This folder should contain your project subdirectories "
-            "(each with Editor/, Mods/, Projects/, Public/ underneath). "
+            "<i>Your BG3 Data folder "
+            "ex. ...\Baldurs Gate 3\Data"
             "The wizard will scan it for mods you can merge.</i>"
         )
         ws_hint.setWordWrap(True)
@@ -189,8 +189,8 @@ class WorkspacePage(QWizardPage):
         form.addRow("divine.exe path:", div_widget)
 
         div_hint = QLabel(
-            "<i>Optional. Used for LSF binary conversion in advanced merge "
-            "scenarios. You can leave this blank for now and set it later.</i>"
+            "<i>Path to divine.exe from LSLib"
+            "https://github.com/Norbyte/lslib/releases</i>"
         )
         div_hint.setWordWrap(True)
         form.addRow("", div_hint)
