@@ -10,7 +10,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from .wizard import MergeWizard
+from gui.wizard import MergeWizard
 
 
 def main() -> int:
