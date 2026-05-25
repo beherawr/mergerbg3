@@ -869,30 +869,38 @@ def _emit_merged(
             raise MergeError(str(e)) from e
         treasure_table.write_file(merged, dest)
 
-    elif cf_a.category == FileCategory.GUI_METADATA:
-        # GUI/metadata.lsf is a binary LSF whose payload is a list of
-        # UI element registrations. Unlike opaque binaries, we CAN
-        # structurally merge it: LSF→LSX via divine, union the children
-        # of each region's root node, LSX→LSF back. This catches the
-        # case the user flagged where two mods each register UI widgets
-        # and a keep-A merge would silently lose B's widgets.
-        merged_via_divine = _try_merge_gui_metadata(
+    elif cf_a.category in _STRUCTURED_LSX_MERGE_CATEGORIES:
+        # Keyed-list LSX/LSF (Progressions, SpellLists, ClassDescriptions,
+        # editor tables, icon UV maps, UI registrations, GUI metadata,
+        # _merged.lsf root template registry, etc.). When both mods provide
+        # one, structurally union the entries by UUID/MapKey rather than
+        # silently keeping A's. For .lsf binary forms we need divine.exe;
+        # without it we fall back to keep-A with a conflict logged so the
+        # user knows entries were dropped.
+        merged = _try_merge_keyed_list_lsx(
             cf_a, cf_b, ra, rb, dest, config, result,
         )
-        if not merged_via_divine:
-            # Divine unavailable or conversion failed — fall through to
-            # the keep-A path with a conflict logged so the user knows
-            # one side's widgets were dropped.
+        if not merged:
             _copy_long(cf_a.path, dest)
             if _files_byte_identical(cf_a.path, cf_b.path):
                 result.emissions.append(FileEmission(
                     output_path=dest,
                     source=f"copied_from:{cf_a.rel_to_project_root}",
-                    note="GUI metadata.lsf: byte-identical, deduped",
+                    note=f"{cf_a.category.value}: byte-identical, deduped",
                 ))
             else:
+                # The category-specific bit tells the user *what kind* of
+                # entries were dropped (progressions/widgets/icons/etc.)
+                # so the message in the summary is actionable.
+                kind = f"{cf_a.category.value}_unmerged"
+                hint = ""
+                if cf_a.path.name.endswith(".lsf") or cf_b.path.name.endswith(".lsf"):
+                    hint = (
+                        " Set divine.exe path in Settings and re-run to "
+                        "structurally merge this file."
+                    )
                 result.conflicts.append(MergeConflict(
-                    kind="gui_metadata_unmerged",
+                    kind=kind,
                     identifier=str(dest.relative_to(config.output_dir)),
                     where_a=str(cf_a.rel_to_project_root),
                     where_b=str(cf_b.rel_to_project_root),
@@ -901,12 +909,20 @@ def _emit_merged(
                 result.emissions.append(FileEmission(
                     output_path=dest,
                     source=f"copied_from:{cf_a.rel_to_project_root}",
-                    note="GUI metadata.lsf: divine.exe unavailable or "
-                         "conversion failed; kept A's, B's UI widgets "
-                         "are NOT in the merged mod. Set divine.exe path "
-                         "in Settings and re-run for a real union.",
+                    note=f"{cf_a.category.value}: union failed; kept A's, "
+                         f"B's entries are NOT in the merged mod.{hint}",
                 ))
             return
+
+    elif cf_a.category == FileCategory.GUI_METADATA:
+        # GUI/metadata.lsf is in _STRUCTURED_LSX_MERGE_CATEGORIES, so the
+        # branch above handles it. This explicit branch is kept as a
+        # no-op marker for the old keep-A fallback path that used to live
+        # here — preserved for grep-ability but never reached.
+        raise AssertionError(
+            "GUI_METADATA should have been handled by the structured-LSX "
+            "branch above; this branch is unreachable"
+        )
 
     else:
         # Other overlapping categories — fall back to "A wins, B is dropped".
@@ -975,7 +991,33 @@ def _files_byte_identical(a: Path, b: Path) -> bool:
                 return True
 
 
-def _try_merge_gui_metadata(
+# Categories whose ``.lsx`` (or, with divine, ``.lsf``) form is a list of
+# UUID-/MapKey-keyed entries we should union when both mods provide one.
+# These are all "keyed list" files where two mods adding different entries
+# is the normal case — Progressions tables, SpellLists, ClassDescriptions,
+# UI registrations, icon UV maps, the collapsed _merged.lsf root template
+# index, GUI metadata, etc.
+#
+# NOT included: ROOT_TEMPLATE_LSX/LSF and LEVEL_CONTENT_LSX/LSF — those are
+# *per-entity* files (one file IS one root template / one level object).
+# If both mods have the same UUID-named file, that's a real conflict and
+# the keep-A behavior is correct.
+_STRUCTURED_LSX_MERGE_CATEGORIES = frozenset({
+    FileCategory.BANK_LSX,            # the catch-all for "generic LSX",
+                                       # which captures Progressions.lsx,
+                                       # SpellLists.lsx, ClassDescriptions.lsx,
+                                       # Races.lsx, Feats.lsx, Tags/*.lsx,
+                                       # Equipment.lsx, and the user's
+                                       # "editor tables" under Editor/Mods/
+    FileCategory.UI_MERGED,           # UI widget registrations
+    FileCategory.ICON_UV_LSX,         # icon UV-coordinate registry (text)
+    FileCategory.ICON_UV_LSF,         # icon UV-coordinate registry (binary)
+    FileCategory.ROOT_TEMPLATE_MERGED, # RootTemplates/_merged.lsf|.lsf.lsx
+    FileCategory.GUI_METADATA,        # Mods/<X>/GUI/metadata.lsf
+})
+
+
+def _try_merge_keyed_list_lsx(
     cf_a: CatalogedFile,
     cf_b: CatalogedFile,
     ra: remap.RemapSet,
@@ -984,62 +1026,42 @@ def _try_merge_gui_metadata(
     config: "MergeConfig",
     result: MergeResult,
 ) -> bool:
-    """Attempt a structured merge of two GUI/metadata.lsf files.
+    """Structured merge of two BG3 keyed-list LSX/LSF files.
 
-    Returns True if the merge succeeded and ``dest`` has been written.
-    Returns False if divine.exe is unavailable, conversion failed, or
-    the LSX structure isn't union-able — in which case the caller is
-    responsible for the fallback emission (keep-A).
+    Handles both text (``.lsx``) and binary (``.lsf``) forms. Binary
+    requires divine.exe to convert to LSX and back. Returns True if the
+    merge succeeded and ``dest`` has been written; False if divine is
+    unavailable for a needed conversion, the structure isn't union-able,
+    or any step failed — in which case the caller is responsible for
+    the fallback (keep-A copy).
 
     Never raises: any failure short-circuits to False so the caller's
-    fallback path is exercised, preserving the merge's overall
+    fallback path is exercised, preserving the merger's overall
     "always produce output" property.
-    """
-    if config.divine is None:
-        return False
 
+    This is a generalization of the original GUI-metadata-only merger.
+    The same union-via-divine pipeline applies to any LSF whose payload
+    is a UUID-keyed list of entries (Progressions, SpellLists, icon UV
+    maps, root template registries, UI registrations, ...).
+    """
     import tempfile
 
-    # We do conversions in a temp directory rather than alongside the
-    # source files so divine doesn't pollute the project trees.
-    with tempfile.TemporaryDirectory(prefix="bg3merge_gui_") as td:
-        td_path = Path(td)
-        a_lsx_path = td_path / "a.lsx"
-        b_lsx_path = td_path / "b.lsx"
-        merged_lsx_path = td_path / "merged.lsx"
+    a_is_text = cf_a.path.name.endswith(".lsx")
+    b_is_text = cf_b.path.name.endswith(".lsx")
 
-        # Step 1: LSF → LSX for both inputs.
+    # Text-only: parse directly, no divine needed.
+    if a_is_text and b_is_text:
         try:
-            config.divine.lsf_to_lsx(cf_a.path, a_lsx_path)
-            config.divine.lsf_to_lsx(cf_b.path, b_lsx_path)
-        except (_divine.DivineError, _divine.DivineNotFoundError):
-            return False
-
-        # Step 2: parse + remap + union.
-        try:
-            a_doc = lsx.parse_file(a_lsx_path)
-            b_doc = lsx.parse_file(b_lsx_path)
+            a_doc = lsx.parse_file(cf_a.path)
+            b_doc = lsx.parse_file(cf_b.path)
         except Exception:
-            # Malformed LSX from divine — extremely unlikely but bail
-            # rather than write garbage.
             return False
 
-        # Apply per-side remaps so any cross-mod-folder references in
-        # the GUI metadata get translated before the union (e.g. if B's
-        # widgets reference "Mods/B_OldFolder/GUI/foo.swf" but we
-        # renamed B's folder during the merge, the path must follow).
         if ra:
             remap.rewrite_lsx(a_doc, ra)
         if rb:
             remap.rewrite_lsx(b_doc, rb)
 
-        # Pick a union-level policy that mirrors the user's choice.
-        # The merger's "skip"/"prefix" policies are stat-name-oriented;
-        # for the LSX union we just need to know whether collisions
-        # should keep A's, take B's, or fail. Map conservatively:
-        #   - "fail" → fail loudly on collision
-        #   - everything else → keep A's (which matches the existing
-        #     "skip-style" non-prefix behavior)
         union_policy: lsx_merge.ConflictPolicy = (
             "fail" if config.conflict_policy == "fail" else "a_wins"
         )
@@ -1050,18 +1072,87 @@ def _try_merge_gui_metadata(
         except lsx_merge.UnionError:
             return False
 
-        # Step 3: serialize merged LSX, convert back to LSF.
         try:
-            lsx.write_file(union.document, merged_lsx_path)
-            config.divine.lsx_to_lsf(merged_lsx_path, dest)
+            lsx.write_file(union.document, dest)
+        except OSError:
+            return False
+
+        _record_union_result(union, cf_a, cf_b, dest, result)
+        return True
+
+    # At least one side is binary LSF — need divine for the conversion.
+    if config.divine is None:
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="bg3merge_lsx_") as td:
+        td_path = Path(td)
+        a_lsx_path = td_path / "a.lsx"
+        b_lsx_path = td_path / "b.lsx"
+        merged_lsx_path = td_path / "merged.lsx"
+
+        # Convert each side to LSX if it isn't already.
+        try:
+            if a_is_text:
+                a_lsx_path = cf_a.path
+            else:
+                config.divine.lsf_to_lsx(cf_a.path, a_lsx_path)
+            if b_is_text:
+                b_lsx_path = cf_b.path
+            else:
+                config.divine.lsf_to_lsx(cf_b.path, b_lsx_path)
+        except (_divine.DivineError, _divine.DivineNotFoundError):
+            return False
+
+        try:
+            a_doc = lsx.parse_file(a_lsx_path)
+            b_doc = lsx.parse_file(b_lsx_path)
+        except Exception:
+            return False
+
+        if ra:
+            remap.rewrite_lsx(a_doc, ra)
+        if rb:
+            remap.rewrite_lsx(b_doc, rb)
+
+        union_policy = (
+            "fail" if config.conflict_policy == "fail" else "a_wins"
+        )
+        try:
+            union = lsx_merge.union_documents(
+                a_doc, b_doc, conflict_policy=union_policy,
+            )
+        except lsx_merge.UnionError:
+            return False
+
+        # Write the merged result in the destination's native format.
+        # We key on the dest path's extension so the output matches what
+        # the Toolkit expects to find at that location.
+        try:
+            if dest.name.endswith(".lsx"):
+                lsx.write_file(union.document, dest)
+            else:
+                # Binary LSF output via divine roundtrip.
+                lsx.write_file(union.document, merged_lsx_path)
+                config.divine.lsx_to_lsf(merged_lsx_path, dest)
         except (_divine.DivineError, _divine.DivineNotFoundError, OSError):
             return False
 
-    # Step 4: record what happened. We treat the union's own conflicts
-    # as merge-level conflicts so the user sees them in the summary.
+    _record_union_result(union, cf_a, cf_b, dest, result)
+    return True
+
+
+def _record_union_result(
+    union: lsx_merge.UnionResult,
+    cf_a: CatalogedFile,
+    cf_b: CatalogedFile,
+    dest: Path,
+    result: MergeResult,
+) -> None:
+    """Push the union's per-entry conflicts and a summary emission into
+    the overall MergeResult. Used by ``_try_merge_keyed_list_lsx``."""
     for uc in union.conflicts:
         result.conflicts.append(MergeConflict(
-            kind="gui_widget_conflict",
+            kind=f"{cf_a.category.value}_entry_conflict",
             identifier=f"{uc.region_id}/{uc.node_id}/{uc.identity}",
             where_a=str(cf_a.rel_to_project_root),
             where_b=str(cf_b.rel_to_project_root),
@@ -1069,7 +1160,8 @@ def _try_merge_gui_metadata(
         ))
 
     note_parts = [
-        f"GUI metadata.lsf union: {union.added_from_b} added from B",
+        f"{cf_a.category.value} union: "
+        f"{union.added_from_b} added from B",
         f"{union.deduped} deduped",
     ]
     if union.conflicts:
@@ -1079,4 +1171,17 @@ def _try_merge_gui_metadata(
         source=f"merged_from:{cf_a.rel_to_project_root}+{cf_b.rel_to_project_root}",
         note="; ".join(note_parts),
     ))
-    return True
+
+
+def _try_merge_gui_metadata(
+    cf_a: CatalogedFile,
+    cf_b: CatalogedFile,
+    ra: remap.RemapSet,
+    rb: remap.RemapSet,
+    dest: Path,
+    config: "MergeConfig",
+    result: MergeResult,
+) -> bool:
+    """Backward-compatible wrapper — GUI/metadata.lsf is now just one
+    more category handled by the generic keyed-list merger."""
+    return _try_merge_keyed_list_lsx(cf_a, cf_b, ra, rb, dest, config, result)
