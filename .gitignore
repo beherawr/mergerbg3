@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# PyInstaller artifacts
+build/
+dist/
+*.spec.bak
+# Generated per-build by CI from the git tag.
+version_info.txt
+
+# Virtual envs
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

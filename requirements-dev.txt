@@ -1,0 +1,13 @@
+# Development dependencies. End users don't need any of these — the
+# released .exe is self-contained. Only needed if you're running the
+# test suite or building the exe yourself.
+
+# Runtime deps
+PySide6>=6.6
+lxml>=4.9
+
+# Build
+pyinstaller>=6.0
+
+# Test
+pytest>=7.0
