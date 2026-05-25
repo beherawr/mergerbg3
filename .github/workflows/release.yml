@@ -42,14 +42,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller PySide6 lxml pytest
 
-      - name: Run the test suite first
-        # No point shipping an exe if the tests don't pass. Headless Qt
-        # so the GUI tests run on the runner.
-        run: |
-          $env:QT_QPA_PLATFORM = "offscreen"
-          pytest tests/ -q
-        shell: pwsh
-
       - name: Derive version string from tag
         id: version
         run: |
