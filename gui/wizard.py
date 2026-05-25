@@ -1184,7 +1184,7 @@ class MergeWizard(QWizard):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("BG3 Mod Merger")
+        self.setWindowTitle("| BG3 Mod Merger | by For_Kiramay |")
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self.resize(820, 600)
