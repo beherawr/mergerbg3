@@ -16,7 +16,7 @@ No installer. No Python. Just download and run.
 
 Windows SmartScreen will probably show **"Windows protected your PC"** the
 first time you launch the exe. This happens because the app isn't signed
-with an expensive Microsoft-issued certificate — not because it's actually
+with an expensive Microsoft-issued certificate, not because it's actually
 dangerous. To run it anyway:
 
 1. Click **More info**
@@ -40,9 +40,9 @@ repo if you want to inspect it.
 1. Pick **Mod A** on the left and **Mod B** on the right from the list
    of mods found in your workspace
 2. Pick a mode:
-   - **Make a new mod combining A and B** — creates a fresh mod;
+   - **Make a new mod combining A and B** - creates a fresh mod;
      A and B stay untouched
-   - **Combine B into A** — folds B's content into A; B stays untouched
+   - **Combine B into A** - folds B's content into A; B stays untouched
 3. Click through Identity → Policy → Review → Run
 4. Done. The merged mod is in your workspace, ready for the Toolkit to
    pick up
@@ -80,25 +80,3 @@ they're legitimate collisions you want to know about.
 
 ---
 
-## For developers / building from source
-
-See [DISTRIBUTION.md](DISTRIBUTION.md) for how the exe is built and
-published. The short version: tag a release, push, GitHub Actions does
-the rest.
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-# A few minutes later: a new release appears with the exe attached.
-```
-
-Tests:
-
-```bash
-pip install -r requirements-dev.txt
-QT_QPA_PLATFORM=offscreen pytest tests/ -q
-```
-
-## License
-
-[choose one — MIT and Apache 2.0 are the BG3 community's defaults]
