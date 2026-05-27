@@ -44,6 +44,27 @@ def qapp():
     yield app
 
 
+@pytest.fixture(autouse=True)
+def _isolate_app_settings(tmp_path_factory, monkeypatch):
+    """Every test gets an empty, throwaway settings file.
+
+    Without this, GUI tests that build a ``MergeWizard()`` pick up the
+    real user's settings file from ``~/.config/bg3_mod_merger/`` —
+    which leads to false failures when ``test_wizard_full_drive_*``
+    leaves a workspace_dir saved that later tests inherit.
+
+    Scoped per-test so each test sees a clean slate; the underlying
+    directory survives the session but the file path itself is unique
+    per test.
+    """
+    settings_dir = tmp_path_factory.mktemp("app_settings_isolated")
+    monkeypatch.setattr(
+        app_settings, "SETTINGS_PATH",
+        settings_dir / "settings.json",
+    )
+    yield
+
+
 # --- Settings ---------------------------------------------------------------
 
 
@@ -90,7 +111,95 @@ def test_wizard_constructs_with_seven_pages(qapp):
     w = MergeWizard()
     assert w.windowTitle() == "BG3 Mod Merger"
     assert len(w.pageIds()) == 7
+    # With clean settings (the autouse isolation fixture gives every
+    # test an empty file), the workspace isn't configured yet — first
+    # run lands on WorkspacePage.
     assert w.startId() == w.PAGE_WORKSPACE
+
+
+def test_wizard_skips_workspace_when_settings_already_configured(
+    qapp, tmp_path,
+):
+    """Returning users with a saved workspace that still exists should
+    land directly on SelectionPage. The "Settings…" button on that page
+    is the way back to re-edit WorkspacePage."""
+    # Pre-populate a saved settings file pointing at an existing dir.
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    s = app_settings.Settings(workspace_dir=str(workspace))
+    app_settings.save(s)
+    w = MergeWizard()
+    assert w.startId() == w.PAGE_SELECTION
+
+
+def test_wizard_falls_back_to_workspace_when_saved_dir_is_missing(
+    qapp, tmp_path,
+):
+    """If the saved workspace_dir no longer exists (drive unplugged,
+    folder renamed), don't dump the user onto SelectionPage where the
+    scan would fail. Send them back to WorkspacePage to fix it first.
+    """
+    s = app_settings.Settings(workspace_dir=str(tmp_path / "does_not_exist"))
+    app_settings.save(s)
+    w = MergeWizard()
+    assert w.startId() == w.PAGE_WORKSPACE
+
+
+def test_selection_page_has_settings_button(qapp, tmp_path):
+    """The Settings button is the *only* way back to WorkspacePage on a
+    returning launch (since Back is disabled on the start page). It
+    must exist on SelectionPage and clicking it should not raise."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    s = app_settings.Settings(workspace_dir=str(workspace))
+    app_settings.save(s)
+    w = MergeWizard()
+    # We're on SELECTION as the start page.
+    assert w.startId() == w.PAGE_SELECTION
+    page = w.page(w.PAGE_SELECTION)
+    assert hasattr(page, "settings_button"), (
+        "SelectionPage must expose a settings_button for re-entry into WorkspacePage"
+    )
+    # Click it. After click, the wizard's startId should point at
+    # WorkspacePage (we used restart() with a new startId).
+    page._open_settings()
+    assert w.startId() == w.PAGE_WORKSPACE
+
+
+def test_wizard_relaunch_flag_defaults_false(qapp):
+    """Without a completed merge, closing the wizard shouldn't trigger
+    a relaunch. (The flag is the signal __main__.py checks after
+    app.exec returns.)"""
+    w = MergeWizard()
+    assert w.relaunch_after_exit is False
+
+
+def test_wizard_relaunch_flag_set_on_successful_merge(qapp):
+    """A successful Finish click flips relaunch_after_exit so __main__.py
+    spawns a fresh process. Simulated by populating the state and
+    firing the accepted signal directly. We use a non-None sentinel for
+    merge_result rather than building a full MergeResult — the flag
+    check is just ``is not None``."""
+    w = MergeWizard()
+    # Pretend a merge ran and succeeded. The accepted-signal handler
+    # only inspects ``state.merge_result is not None`` and
+    # ``not state.merge_error``.
+    w.state.merge_result = object()  # sentinel; anything non-None works
+    w.state.merge_error = ""
+    # Trigger the slot QWizard would call on Finish.
+    w._on_accepted()
+    assert w.relaunch_after_exit is True
+
+
+def test_wizard_relaunch_flag_not_set_when_merge_failed(qapp):
+    """A failed merge that the user clicked Finish past shouldn't trigger
+    a relaunch — they might want to step away and debug, not loop right
+    back into a broken state."""
+    w = MergeWizard()
+    w.state.merge_result = None
+    w.state.merge_error = "Something went wrong"
+    w._on_accepted()
+    assert w.relaunch_after_exit is False
 
 
 def test_wizard_state_is_shared_across_all_pages(qapp):

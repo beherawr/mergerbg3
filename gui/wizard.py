@@ -167,8 +167,8 @@ class WorkspacePage(QWizardPage):
         form.addRow("Workspace folder:", ws_widget)
 
         ws_hint = QLabel(
-            "<i>Your BG3 Data folder "
-            "ex. ...\Baldurs Gate 3\Data"
+            "<i>This folder should contain your project subdirectories "
+            "(each with Editor/, Mods/, Projects/, Public/ underneath). "
             "The wizard will scan it for mods you can merge.</i>"
         )
         ws_hint.setWordWrap(True)
@@ -189,8 +189,8 @@ class WorkspacePage(QWizardPage):
         form.addRow("divine.exe path:", div_widget)
 
         div_hint = QLabel(
-            "<i>Path to divine.exe from LSLib"
-            "https://github.com/Norbyte/lslib/releases</i>"
+            "<i>Optional. Used for LSF binary conversion in advanced merge "
+            "scenarios. You can leave this blank for now and set it later.</i>"
         )
         div_hint.setWordWrap(True)
         form.addRow("", div_hint)
@@ -291,6 +291,14 @@ class SelectionPage(QWizardPage):
         status_row = QHBoxLayout()
         self.status_label = QLabel("Scanning workspace…")
         status_row.addWidget(self.status_label, 1)
+        # "Settings…" lets the user revisit WorkspacePage to fix paths
+        # without having to restart the app. Especially useful since
+        # the wizard normally skips WorkspacePage on returning launches
+        # once settings have been saved; this is the only entry point.
+        self.settings_button = QPushButton("Settings…")
+        self.settings_button.setToolTip("Re-open the workspace setup page")
+        self.settings_button.clicked.connect(self._open_settings)
+        status_row.addWidget(self.settings_button)
         self.rescan_button = QPushButton("Rescan")
         self.rescan_button.clicked.connect(self._rescan)
         status_row.addWidget(self.rescan_button)
@@ -355,6 +363,23 @@ class SelectionPage(QWizardPage):
         so the "Scanning..." status update paints before disk I/O.
         """
         self._rescan()
+
+    def _open_settings(self) -> None:
+        """Jump back to the WorkspacePage to re-edit workspace + divine paths.
+
+        Implementation note: QWizard doesn't expose an "anchor to page N"
+        API for non-linear navigation. We use ``restart()`` after
+        temporarily pointing ``startId`` at the workspace page; once
+        the user finishes editing and clicks Next, normal sequential
+        navigation resumes through SelectionPage → IdentityPage → ...
+        """
+        wizard = self.wizard()
+        if wizard is None:
+            return
+        # Cast: we know it's a MergeWizard because this page is owned by
+        # one. Avoid the circular-import-style annotation.
+        wizard.setStartId(MergeWizard.PAGE_WORKSPACE)
+        wizard.restart()
 
     def _rescan(self) -> None:
         ws = self.state.settings.workspace_dir
@@ -1184,10 +1209,16 @@ class MergeWizard(QWizard):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("| BG3 Mod Merger | by For_Kiramay |")
+        self.setWindowTitle("BG3 Mod Merger")
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self.resize(820, 600)
+
+        # Set when a merge completes successfully and we want main() to
+        # spawn a fresh instance after this window closes. Checked by
+        # gui/__main__.py's main() loop. Default False so a normal close
+        # (no merge performed, or merge failed) just exits.
+        self.relaunch_after_exit: bool = False
 
         self.state = WizardState(settings=app_settings.load())
 
@@ -1210,8 +1241,52 @@ class MergeWizard(QWizard):
         self.setPage(self.PAGE_RUN, RunPage(self.state))
         self.setPage(self.PAGE_RESULT, ResultPage(self.state))
 
-        # Entry point.
-        self.setStartId(self.PAGE_WORKSPACE)
+        # Entry point: returning users with a saved + still-valid
+        # workspace go straight to SelectionPage. New users (or anyone
+        # whose saved workspace no longer exists, e.g. moved drive) land
+        # on WorkspacePage to (re-)configure. The Settings button on
+        # SelectionPage exposes a way back to WorkspacePage so this
+        # decision isn't a permanent one-way door.
+        self.setStartId(self._initial_start_id())
+
+        # Hook the wizard's accepted signal (fired on Finish click) so a
+        # completed merge triggers a relaunch on close. The signal
+        # carries no payload; we check state.merge_result to confirm a
+        # merge actually ran (vs. e.g. some future "Settings only" Finish
+        # path that shouldn't relaunch).
+        self.accepted.connect(self._on_accepted)
+
+    def _initial_start_id(self) -> int:
+        """Pick the wizard's start page based on saved settings.
+
+        Returns PAGE_SELECTION when the user has a saved workspace that
+        still exists on disk — this is the "returning user" path and
+        skips a click-Next on the workspace page. Falls back to
+        PAGE_WORKSPACE for first-run users or when the saved workspace
+        path no longer resolves (drive unplugged, folder renamed, etc.)
+        so they're prompted to fix it before the scan tries to walk
+        a missing directory.
+        """
+        ws = self.state.settings.workspace_dir
+        if ws and Path(ws).is_dir():
+            return self.PAGE_SELECTION
+        return self.PAGE_WORKSPACE
+
+    def _on_accepted(self) -> None:
+        """Fired when the user clicks Finish on the ResultPage.
+
+        We set ``relaunch_after_exit`` so ``gui/__main__.py`` spawns a
+        fresh instance after this one closes — common case is the user
+        wants to do another merge right away. Only relaunch when a
+        merge actually happened and didn't error; a Finish click after
+        a failed merge shouldn't loop the user into starting over with
+        broken state.
+        """
+        if (
+            self.state.merge_result is not None
+            and not self.state.merge_error
+        ):
+            self.relaunch_after_exit = True
 
     def nextId(self) -> int:
         """Override the linear next-page logic to skip IdentityPage when
