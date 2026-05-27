@@ -692,6 +692,19 @@ def _emit_files(
             continue
         b_emissions[dest] = (b, cf, remap_b)
 
+    # NEW: detect collisions on referenced binary assets (textures, models,
+    # banks, VFX, paired XMLs) and rename B's copy rather than dropping it.
+    # This is critical for things like icon atlases: two mods both shipping
+    # a "newAtlas.dds" with different contents would otherwise lose B's
+    # atlas, and every icon B's UI referenced would render with A's bitmap.
+    # The renamed-asset path is also added to remap_b.paths so every
+    # textual reference inside B's content (icon UV maps, root templates,
+    # stats Icon= fields, ...) follows the new filename.
+    b_emissions = _resolve_asset_collisions(
+        a_emissions, b_emissions, b.mod_folder_name, remap_b, result,
+        output_root=config.output_dir,
+    )
+
     # Emit. Iterate over the union of destinations.
     all_dests = sorted(set(a_emissions) | set(b_emissions))
     report = config.progress_callback or (lambda *_, **__: None)
@@ -712,6 +725,263 @@ def _emit_files(
         elif in_b:
             _emit_single(dest, in_b, result)
     report("emit", total, total, f"Wrote {total} files")
+
+
+# Binary asset categories where a same-path collision means
+# "rename B's copy and rewrite refs", NOT "drop B's copy". These files are
+# referenced by *path* from other content (icon UV maps reference textures,
+# root templates reference models and banks, stats reference icons), so
+# losing one breaks every reference into it.
+_RENAME_ON_COLLIDE_CATEGORIES: frozenset[FileCategory] = frozenset({
+    FileCategory.TEXTURE_DDS,            # icon atlases, packed textures
+    FileCategory.TEXTURE_TIF,            # source textures
+    FileCategory.MODEL_GR2,              # 3D models
+    FileCategory.ASSET_IMPORT_SETTINGS,  # .xml paired with .gr2/.tif/.dds
+    FileCategory.VFX_LSFX,               # visual effects definitions
+    FileCategory.BANK_LSF,               # VisualBank/MaterialBank/TextureBank etc.
+})
+
+# IMAGE_ASSET (mod_publish_logo.png, thumbnail.png) is deliberately NOT in
+# the rename-on-collide set: those are looked up by *fixed path* by the
+# Toolkit and the Nexus mod page. Renaming wouldn't help — only one of
+# them gets used regardless. The keep-A behavior with a logged conflict
+# is the right call there; the user has to pick which logo/thumbnail
+# represents the merged mod.
+
+
+def _resolve_asset_collisions(
+    a_emissions: dict[Path, tuple[Project, CatalogedFile, remap.RemapSet]],
+    b_emissions: dict[Path, tuple[Project, CatalogedFile, remap.RemapSet]],
+    b_mod_folder: str,
+    remap_b: remap.RemapSet,
+    result: MergeResult,
+    *,
+    output_root: Path,
+) -> dict[Path, tuple[Project, CatalogedFile, remap.RemapSet]]:
+    """Find binary-asset collisions and rename B's copy to keep both.
+
+    For every destination path present in both ``a_emissions`` and
+    ``b_emissions`` where the category is in
+    ``_RENAME_ON_COLLIDE_CATEGORIES`` and the files are NOT byte-identical:
+
+    1. Generate a new filename for B's copy
+       (``<stem>__<b_folder_suffix>.<ext>``).
+    2. Add a substring substitution to ``remap_b.paths`` so all of B's
+       other content that references the old filename gets rewritten
+       during the emit pass. The substitution is keyed by *bare filename*
+       (no directory part) because that's how UV maps, root templates,
+       and stats reference these assets in practice.
+    3. Re-key B's emission dict so the file emits at the new destination.
+    4. Handle paired files (``foo.dds`` + ``foo.xml``,
+       ``foo.GR2`` + ``foo.xml``) atomically — if we rename the binary,
+       we rename its companion XML to match, and vice versa, so the
+       Toolkit's asset import system stays consistent.
+    5. If A and B's files are byte-identical, no rename needed — they
+       dedupe naturally.
+
+    Returns a (possibly modified) ``b_emissions`` map. The original
+    ``b_emissions`` argument is not mutated.
+
+    Each rename emits a ``MergeConflict`` of kind
+    ``asset_renamed_to_keep_both`` so the user sees what happened in
+    the merge summary.
+    """
+    # Snapshot the b_emissions to a new dict — we'll mutate the copy.
+    new_b: dict[Path, tuple[Project, CatalogedFile, remap.RemapSet]] = dict(b_emissions)
+
+    # Use a deterministic suffix derived from B's folder name. We sanitize
+    # to alphanum so it's safe in filenames on every filesystem.
+    suffix = "_" + _sanitize_filename_suffix(b_mod_folder)
+
+    # Pre-compute paired-file lookups: for every dest that's an
+    # ASSET_IMPORT_SETTINGS XML, what's its paired binary's dest? And
+    # vice versa? We need this so a rename of one drags the other.
+    a_pairs = _build_pair_index(a_emissions)
+    b_pairs = _build_pair_index(b_emissions)
+
+    # Iterate over a copy of the keys — we may mutate new_b as we go.
+    for dest in list(new_b.keys()):
+        if dest not in a_emissions:
+            continue
+        # The previous iteration may have renamed (and removed) this
+        # entry — for paired files, processing the binary's collision
+        # also renames its sibling XML. Skip anything no longer in new_b.
+        if dest not in new_b:
+            continue
+        _, cf_a, _ = a_emissions[dest]
+        _, cf_b, _ = new_b[dest]
+        if cf_a.category != cf_b.category:
+            continue  # category-mismatch handled elsewhere
+        if cf_a.category not in _RENAME_ON_COLLIDE_CATEGORIES:
+            continue
+        # Byte-identical files dedupe silently — no rename.
+        if _files_byte_identical(cf_a.path, cf_b.path):
+            continue
+
+        # Rename B's copy. Find an unused new destination filename
+        # (`foo.dds` → `foo<suffix>.dds`, fallback to `foo<suffix>_2.dds`
+        # if that collides too).
+        new_dest = _pick_renamed_dest(dest, suffix, a_emissions, new_b)
+        if new_dest is None:
+            # Couldn't find a free name (extremely unlikely — would need
+            # thousands of suffix collisions). Fall back to keep-A so we
+            # at least don't crash, and log a real conflict.
+            result.conflicts.append(MergeConflict(
+                kind="asset_rename_failed",
+                identifier=str(dest.relative_to(output_root)),
+                where_a=str(cf_a.rel_to_project_root),
+                where_b=str(cf_b.rel_to_project_root),
+                resolution="kept_a_copied_verbatim",
+            ))
+            continue
+
+        # Add a remap so every textual reference to the bare filename in
+        # B's content gets rewritten to the new bare filename. We map
+        # `oldname.dds` → `newname.dds` (without directory) because
+        # that's how Larian's UV maps / stats / root templates reference
+        # textures — by bare name plus a separate Path or container hint.
+        # The substring substitution also catches the slash-prefixed forms
+        # that crop up in path strings ("Icons/newAtlas.dds").
+        old_name = dest.name
+        new_name = new_dest.name
+        try:
+            remap_b.paths.add_substring(old_name, new_name)
+        except ValueError:
+            # Two collisions both want to remap the same bare filename
+            # differently — shouldn't happen unless the project itself
+            # has duplicate filenames across different directories.
+            # Be safe and bail with a logged conflict.
+            result.conflicts.append(MergeConflict(
+                kind="asset_rename_failed",
+                identifier=str(dest.relative_to(output_root)),
+                where_a=str(cf_a.rel_to_project_root),
+                where_b=str(cf_b.rel_to_project_root),
+                resolution="kept_a_copied_verbatim",
+            ))
+            continue
+
+        # Re-key B's emission so the file emits at the new path.
+        del new_b[dest]
+        new_b[new_dest] = (b_emissions[dest][0], cf_b, remap_b)
+
+        # If this file has a paired asset-import-settings XML (or vice
+        # versa), rename the partner too. The Toolkit relies on stem
+        # matching to associate them — diverging the stems would break
+        # the importer.
+        partner = b_pairs.get(dest)
+        if partner is not None and partner in new_b:
+            partner_new = new_dest.parent / (
+                new_dest.stem + partner.suffix
+            )
+            # Skip if the partner would collide with anything else.
+            if partner_new not in a_emissions and partner_new not in new_b:
+                partner_old_name = partner.name
+                partner_new_name = partner_new.name
+                try:
+                    remap_b.paths.add_substring(
+                        partner_old_name, partner_new_name,
+                    )
+                except ValueError:
+                    pass  # partner remap not critical; the import xml
+                          # contents reference by stem anyway
+                _, partner_cf, _ = new_b[partner]
+                del new_b[partner]
+                new_b[partner_new] = (
+                    b_emissions[partner][0], partner_cf, remap_b,
+                )
+
+        # Log it so the user sees the rename in the summary.
+        result.conflicts.append(MergeConflict(
+            kind="asset_renamed_to_keep_both",
+            identifier=str(dest.relative_to(output_root)),
+            where_a=str(cf_a.rel_to_project_root),
+            where_b=str(cf_b.rel_to_project_root),
+            resolution=f"renamed_b_to:{new_name}",
+        ))
+
+    return new_b
+
+
+def _sanitize_filename_suffix(folder_name: str) -> str:
+    """Turn a mod folder name into a short, filename-safe suffix.
+
+    Strips any UUID tail (``ModName_<36-char-uuid>`` → ``ModName``),
+    then keeps alphanumerics only, capped to 16 chars. Falls back to
+    ``"alt"`` if the result would be empty.
+    """
+    import re
+    base = folder_name
+    # Strip trailing _<uuid>
+    base = re.sub(
+        r"_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+        r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "", base,
+    )
+    safe = "".join(c for c in base if c.isalnum())[:16]
+    return safe or "alt"
+
+
+def _build_pair_index(
+    emissions: dict[Path, tuple[Project, CatalogedFile, remap.RemapSet]],
+) -> dict[Path, Path]:
+    """Map each ASSET_IMPORT_SETTINGS XML's dest to its sibling binary's
+    dest (and the reverse).
+
+    Asset-import-settings XMLs share a stem and directory with their
+    binary counterpart (``foo.tif`` ↔ ``foo.xml``). When we rename one,
+    we must rename the other to keep the importer's stem-matching alive.
+
+    Returns a symmetric dict — looking up either side gives the other.
+    """
+    pairs: dict[Path, Path] = {}
+    # Group emissions by (parent_dir, stem). A pair is any group that
+    # contains an ASSET_IMPORT_SETTINGS and exactly one binary partner.
+    from collections import defaultdict
+    by_stem: dict[tuple[Path, str], list[Path]] = defaultdict(list)
+    for dest in emissions:
+        by_stem[(dest.parent, dest.stem)].append(dest)
+    for group in by_stem.values():
+        if len(group) != 2:
+            continue
+        d1, d2 = group
+        _, cf1, _ = emissions[d1]
+        _, cf2, _ = emissions[d2]
+        # Pair up if one side is the XML and the other is a binary
+        # asset that lives in the rename-on-collide set.
+        if (cf1.category == FileCategory.ASSET_IMPORT_SETTINGS
+                and cf2.category in _RENAME_ON_COLLIDE_CATEGORIES):
+            pairs[d1] = d2
+            pairs[d2] = d1
+        elif (cf2.category == FileCategory.ASSET_IMPORT_SETTINGS
+                and cf1.category in _RENAME_ON_COLLIDE_CATEGORIES):
+            pairs[d1] = d2
+            pairs[d2] = d1
+    return pairs
+
+
+def _pick_renamed_dest(
+    original: Path,
+    suffix: str,
+    a_emissions: dict,
+    b_emissions: dict,
+) -> Path | None:
+    """Pick a new filename for B's copy that doesn't collide.
+
+    Tries ``<stem><suffix><ext>`` first. If that's also taken (rare —
+    requires the user to have a file of exactly that name already),
+    tries ``<stem><suffix>_2<ext>``, ``..._3``, etc., up to 999.
+    Returns None if no free slot is found.
+    """
+    parent = original.parent
+    stem = original.stem
+    ext = original.suffix
+    candidates = [parent / f"{stem}{suffix}{ext}"] + [
+        parent / f"{stem}{suffix}_{n}{ext}" for n in range(2, 1000)
+    ]
+    for cand in candidates:
+        if cand not in a_emissions and cand not in b_emissions:
+            return cand
+    return None
 
 
 def _destination_for(
