@@ -102,7 +102,7 @@ def test_merge_disjoint_tables():
 
 def test_merge_canmerge_tables_concatenate_subtables():
     """The flagship behavior: both inputs define TUT_Chest_Potions with
-    CanMerge=1 — output table holds the union of their subtables (no
+    CanMerge=1: output table holds the union of their subtables (no
     conflict, no user prompt needed). Mirrors the game's own runtime
     merging behavior."""
     a = tt.parse_text(
@@ -130,7 +130,7 @@ def test_merge_canmerge_tables_concatenate_subtables():
 def test_merge_canmerge_with_real_fixtures():
     """Bloodfang + LampOfLuxury both have TUT_Chest_Potions with CanMerge=1.
     The merged file should hold ALL of Bloodfang's 4 subtables PLUS Lamp's 1,
-    AND Lamp's MysticFountain table — no conflicts emitted."""
+    AND Lamp's MysticFountain table: no conflicts emitted."""
     a = tt.parse_file(
         FIXTURES / "Bloodfang" / "Public" / "BloodFang"
         / "Stats" / "Generated" / "TreasureTable.txt"
@@ -206,7 +206,7 @@ def test_identical_tables_dedupe_silently():
 
 def test_real_merge_treasure_table_canmerge_concatenation(tmp_path):
     """End-to-end: merge Bloodfang + Lamp, verify the output's
-    TreasureTable.txt contains all 5 subtables and both table names —
+    TreasureTable.txt contains all 5 subtables and both table names:
     not just A's content."""
     a = Project.load(FIXTURES / "Bloodfang")
     b = Project.load(FIXTURES / "LampOfLuxury")
@@ -242,7 +242,7 @@ def test_real_merge_treasure_table_canmerge_concatenation(tmp_path):
     assert "I_BloodFang_Helmet2" in cats
     assert "I_LampOLLamp" in cats
 
-    # No more file_overlap conflict on TreasureTable.txt — it merged properly.
+    # No more file_overlap conflict on TreasureTable.txt: it merged properly.
     tt_conflicts = [
         c for c in result.conflicts
         if "TreasureTable.txt" in c.identifier
@@ -260,7 +260,7 @@ def test_real_merge_no_canmerge_id_clashes(tmp_path):
     """Bloodfang + LampOfLuxury both define TUT_Chest_Potions with
     CanMerge=Yes in their .stats files. The reference index and merger
     should both treat this as a runtime-shared name (NOT a definition
-    collision), so the merge produces zero identifier clashes — only the
+    collision), so the merge produces zero identifier clashes: only the
     legitimate file overlaps (per-mod thumbnails) remain."""
     a = Project.load(FIXTURES / "Bloodfang")
     b = Project.load(FIXTURES / "LampOfLuxury")

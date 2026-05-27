@@ -7,28 +7,28 @@ output path.
 
 The pipeline is five phases:
 
-1. **Discover** — caller-supplied. The merger receives already-loaded
+1. **Discover**: caller-supplied. The merger receives already-loaded
    ``Project`` objects (so the GUI can show a preview before invoking).
-2. **Detect** — build a ``ReferenceIndex`` for each input; find clashes.
-3. **Plan** — translate clashes + user policy into ``RemapSet``s, one per
+2. **Detect**: build a ``ReferenceIndex`` for each input; find clashes.
+3. **Plan**: translate clashes + user policy into ``RemapSet``s, one per
    input. Empty remap sets are the common case (clean union).
-4. **Execute** — for each file in each input, decide its destination path
+4. **Execute**: for each file in each input, decide its destination path
    in the output tree and either:
      - For *mergeable text formats* (stats .txt, .stats, .loca.xml,
-       meta.lsx, story goals) — parse, apply remap, then either merge with
+       meta.lsx, story goals): parse, apply remap, then either merge with
        its peer from the other input or write standalone.
      - For *opaque files* (.lsf, .lsfx, .gr2, .tif, .dds, .lsx other than
-       meta) — copy verbatim with the folder name remapped.
-     - For *discardable files* (story compiled outputs, log.txt) — skip.
-5. **Validate** — build a ``ReferenceIndex`` over the output and surface
-   orphan references for user review. Doesn't block — warnings only.
+       meta): copy verbatim with the folder name remapped.
+     - For *discardable files* (story compiled outputs, log.txt): skip.
+5. **Validate**: build a ``ReferenceIndex`` over the output and surface
+   orphan references for user review. Doesn't block: warnings only.
 
 The merger is deliberately single-threaded and writes files eagerly. For
 the project sizes we target (dozens to low-hundreds of files per input),
 this is fast enough and keeps the error story simple.
 
 The merger never overwrites the inputs. The output directory is always
-distinct. (In-place merging — selecting one input as the output target —
+distinct. (In-place merging: selecting one input as the output target:
 is implemented by the caller copying that input to the output dir first.)
 
 Things the merger does NOT do (yet):
@@ -118,12 +118,12 @@ class MergeConfig:
     inputs[2] to that, and so on. Each step uses the same conflict policy.
 
     ``conflict_policy``:
-      - ``"prefix"`` — on a stat-name clash, mod B's entry is renamed with
+      - ``"prefix"``: on a stat-name clash, mod B's entry is renamed with
         ``conflict_prefix`` (e.g. ``"ModB_"``) and references in mod B's
         content follow.
-      - ``"skip"`` — mod B's entry is dropped, mod A's wins. Conflict
+      - ``"skip"``: mod B's entry is dropped, mod A's wins. Conflict
         recorded for the user's report.
-      - ``"fail"`` — any clash raises and the merge aborts before writing.
+      - ``"fail"``: any clash raises and the merge aborts before writing.
 
     ``output_dir`` must not exist OR must be empty. The merger refuses to
     overwrite a non-empty directory by default.
@@ -155,7 +155,7 @@ class MergeConfig:
     #     input's existing identity (otherwise the in-place "mod A" gets
     #     a different identity, defeating the purpose)
     # The GUI enforces both; passing inconsistent values isn't an error
-    # at the engine level — we just write what we're told.
+    # at the engine level: we just write what we're told.
     in_place: bool = False
     # Optional bound Divine wrapper for LSF↔LSX round-tripping. When set,
     # the merger will structurally merge binary LSF files (currently:
@@ -218,7 +218,7 @@ class MergeError(RuntimeError):
 def merge(config: MergeConfig) -> MergeResult:
     """Run all five phases and return the result.
 
-    The caller catches MergeError separately from other exceptions —
+    The caller catches MergeError separately from other exceptions:
     a MergeError is a policy decision (e.g. unresolved conflict), not a
     parsing or filesystem failure.
 
@@ -254,7 +254,7 @@ def _merge_in_place(config: MergeConfig) -> MergeResult:
 
     This works the same way for self-contained projects and canonical
     Toolkit workspaces. In both cases, a "mod" consists of up to four
-    subfolders — one per bucket — and replacing the mod means replacing
+    subfolders: one per bucket: and replacing the mod means replacing
     those subfolders. Other content in the output_dir (other mods in a
     canonical workspace, README files in a self-contained project) is
     left untouched.
@@ -272,7 +272,7 @@ def _merge_in_place(config: MergeConfig) -> MergeResult:
     Crash recovery: on any OSError during the swap we undo the renames
     we already did, so the user's mod is restored to its original state.
     Worst case (a rename fails AND undo also fails) leaves the user with
-    .backup_<stamp> subfolders alongside the real bucket subfolders —
+    .backup_<stamp> subfolders alongside the real bucket subfolders:
     visible and recoverable manually.
     """
     import os
@@ -294,7 +294,7 @@ def _merge_in_place(config: MergeConfig) -> MergeResult:
     # for the brief lifetime of a staging directory.
     import secrets
     stamp = secrets.token_hex(4)
-    # Staging goes as a sibling of the target root — same filesystem so
+    # Staging goes as a sibling of the target root: same filesystem so
     # the per-bucket renames are atomic, but OUTSIDE the workspace so we
     # don't pollute it with temp content visible to the Toolkit.
     # Name is kept short ("$name.s_<8hex>") since Windows' CopyFile2
@@ -314,7 +314,7 @@ def _merge_in_place(config: MergeConfig) -> MergeResult:
     try:
         result = _merge_direct(inner_config)
     except Exception:
-        # Half-written staging — clean up. Target is intact.
+        # Half-written staging: clean up. Target is intact.
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
@@ -369,7 +369,7 @@ def _merge_in_place(config: MergeConfig) -> MergeResult:
             f"for any *.bak_{stamp} or *.s_* leftovers."
         ) from e
 
-    # All swaps OK — clean up backups and any leftover staging files
+    # All swaps OK: clean up backups and any leftover staging files
     # outside the four bucket subfolders (e.g. an empty staging shell).
     for _, bp in completed_backups:
         shutil.rmtree(bp, ignore_errors=True)
@@ -390,7 +390,7 @@ def _prepare_output_dir(config: MergeConfig) -> None:
 
     The merger writes to ``<output_dir>/<bucket>/<new_folder>/...`` for
     each of the four buckets. This function checks that none of those
-    bucket subfolders already exist — which would mean we'd silently
+    bucket subfolders already exist: which would mean we'd silently
     overwrite an existing mod with the same folder name. Other content
     in ``output_dir`` (e.g. other mods in a canonical Toolkit workspace)
     is left alone.
@@ -529,7 +529,7 @@ def _plan_remaps(
         if clash.kind == IdKind.UUID and clash.value in (
             a.mod_meta.uuid.lower(), b.mod_meta.uuid.lower(),
         ):
-            # The mod-UUID itself colliding (extremely unlikely — would
+            # The mod-UUID itself colliding (extremely unlikely: would
             # mean both inputs share the same mod). Already handled by
             # the uuid remaps above.
             continue
@@ -571,12 +571,12 @@ def _prefixed(value: str, kind: IdKind, prefix: str) -> str:
     if kind == IdKind.STAT_NAME or kind == IdKind.ICON_NAME:
         return f"{prefix}{value}"
     if kind == IdKind.UUID:
-        # We don't prefix UUIDs — they're hex-formatted and prefixing would
+        # We don't prefix UUIDs: they're hex-formatted and prefixing would
         # break parsers. Realistically a UUID clash means we should mint
         # a fresh one. For now leave it and let validation flag it.
         return value
     if kind == IdKind.LOCA_HANDLE:
-        # Handles are hex too — same as UUIDs, can't prefix. The proper
+        # Handles are hex too: same as UUIDs, can't prefix. The proper
         # fix is to mint a new handle, which we leave for later.
         return value
     if kind == IdKind.PATH_STRING:
@@ -625,7 +625,7 @@ def _emit_meta(
         note="merged mod identity, union of dependencies + scripts",
     ))
 
-    # Projects/<NewFolder>/meta.lsx — fresh project identity pointing at
+    # Projects/<NewFolder>/meta.lsx: fresh project identity pointing at
     # the new mod UUID. We mint a separate UUID for the project itself.
     project_meta = _meta.ProjectMeta(
         uuid=_meta.generate_uuid(),
@@ -712,7 +712,7 @@ def _emit_files(
     for i, dest in enumerate(all_dests):
         in_a = a_emissions.get(dest)
         in_b = b_emissions.get(dest)
-        # Report relative path for log-friendliness — full paths bloat the UI.
+        # Report relative path for log-friendliness: full paths bloat the UI.
         try:
             shown = str(dest.relative_to(config.output_dir))
         except ValueError:
@@ -743,7 +743,7 @@ _RENAME_ON_COLLIDE_CATEGORIES: frozenset[FileCategory] = frozenset({
 
 # IMAGE_ASSET (mod_publish_logo.png, thumbnail.png) is deliberately NOT in
 # the rename-on-collide set: those are looked up by *fixed path* by the
-# Toolkit and the Nexus mod page. Renaming wouldn't help — only one of
+# Toolkit and the Nexus mod page. Renaming wouldn't help: only one of
 # them gets used regardless. The keep-A behavior with a logged conflict
 # is the right call there; the user has to pick which logo/thumbnail
 # represents the merged mod.
@@ -773,10 +773,10 @@ def _resolve_asset_collisions(
        and stats reference these assets in practice.
     3. Re-key B's emission dict so the file emits at the new destination.
     4. Handle paired files (``foo.dds`` + ``foo.xml``,
-       ``foo.GR2`` + ``foo.xml``) atomically — if we rename the binary,
+       ``foo.GR2`` + ``foo.xml``) atomically: if we rename the binary,
        we rename its companion XML to match, and vice versa, so the
        Toolkit's asset import system stays consistent.
-    5. If A and B's files are byte-identical, no rename needed — they
+    5. If A and B's files are byte-identical, no rename needed: they
        dedupe naturally.
 
     Returns a (possibly modified) ``b_emissions`` map. The original
@@ -786,7 +786,7 @@ def _resolve_asset_collisions(
     ``asset_renamed_to_keep_both`` so the user sees what happened in
     the merge summary.
     """
-    # Snapshot the b_emissions to a new dict — we'll mutate the copy.
+    # Snapshot the b_emissions to a new dict: we'll mutate the copy.
     new_b: dict[Path, tuple[Project, CatalogedFile, remap.RemapSet]] = dict(b_emissions)
 
     # Use a deterministic suffix derived from B's folder name. We sanitize
@@ -799,12 +799,12 @@ def _resolve_asset_collisions(
     a_pairs = _build_pair_index(a_emissions)
     b_pairs = _build_pair_index(b_emissions)
 
-    # Iterate over a copy of the keys — we may mutate new_b as we go.
+    # Iterate over a copy of the keys: we may mutate new_b as we go.
     for dest in list(new_b.keys()):
         if dest not in a_emissions:
             continue
         # The previous iteration may have renamed (and removed) this
-        # entry — for paired files, processing the binary's collision
+        # entry: for paired files, processing the binary's collision
         # also renames its sibling XML. Skip anything no longer in new_b.
         if dest not in new_b:
             continue
@@ -814,7 +814,7 @@ def _resolve_asset_collisions(
             continue  # category-mismatch handled elsewhere
         if cf_a.category not in _RENAME_ON_COLLIDE_CATEGORIES:
             continue
-        # Byte-identical files dedupe silently — no rename.
+        # Byte-identical files dedupe silently: no rename.
         if _files_byte_identical(cf_a.path, cf_b.path):
             continue
 
@@ -823,7 +823,7 @@ def _resolve_asset_collisions(
         # if that collides too).
         new_dest = _pick_renamed_dest(dest, suffix, a_emissions, new_b)
         if new_dest is None:
-            # Couldn't find a free name (extremely unlikely — would need
+            # Couldn't find a free name (extremely unlikely: would need
             # thousands of suffix collisions). Fall back to keep-A so we
             # at least don't crash, and log a real conflict.
             result.conflicts.append(MergeConflict(
@@ -839,7 +839,7 @@ def _resolve_asset_collisions(
         # B's content gets rewritten to the new bare filename. We map
         # `oldname.dds` → `newname.dds` (without directory) because
         # that's how Larian's UV maps / stats / root templates reference
-        # textures — by bare name plus a separate Path or container hint.
+        # textures: by bare name plus a separate Path or container hint.
         # The substring substitution also catches the slash-prefixed forms
         # that crop up in path strings ("Icons/newAtlas.dds").
         old_name = dest.name
@@ -848,7 +848,7 @@ def _resolve_asset_collisions(
             remap_b.paths.add_substring(old_name, new_name)
         except ValueError:
             # Two collisions both want to remap the same bare filename
-            # differently — shouldn't happen unless the project itself
+            # differently: shouldn't happen unless the project itself
             # has duplicate filenames across different directories.
             # Be safe and bail with a logged conflict.
             result.conflicts.append(MergeConflict(
@@ -866,7 +866,7 @@ def _resolve_asset_collisions(
 
         # If this file has a paired asset-import-settings XML (or vice
         # versa), rename the partner too. The Toolkit relies on stem
-        # matching to associate them — diverging the stems would break
+        # matching to associate them: diverging the stems would break
         # the importer.
         partner = b_pairs.get(dest)
         if partner is not None and partner in new_b:
@@ -931,7 +931,7 @@ def _build_pair_index(
     binary counterpart (``foo.tif`` ↔ ``foo.xml``). When we rename one,
     we must rename the other to keep the importer's stem-matching alive.
 
-    Returns a symmetric dict — looking up either side gives the other.
+    Returns a symmetric dict: looking up either side gives the other.
     """
     pairs: dict[Path, Path] = {}
     # Group emissions by (parent_dir, stem). A pair is any group that
@@ -967,7 +967,7 @@ def _pick_renamed_dest(
 ) -> Path | None:
     """Pick a new filename for B's copy that doesn't collide.
 
-    Tries ``<stem><suffix><ext>`` first. If that's also taken (rare —
+    Tries ``<stem><suffix><ext>`` first. If that's also taken (rare:
     requires the user to have a file of exactly that name already),
     tries ``<stem><suffix>_2<ext>``, ``..._3``, etc., up to 999.
     Returns None if no free slot is found.
@@ -1052,14 +1052,14 @@ def _emit_single(
         FileCategory.STORY_GOAL, FileCategory.SE_LUA, FileCategory.STORY_HEADER,
         FileCategory.STORY_DEFINITIONS, FileCategory.STORY_ORPHAN_IGNORE,
     ):
-        # Text files we don't parse structurally — substring rewrite.
+        # Text files we don't parse structurally: substring rewrite.
         text = cf.path.read_text(encoding="utf-8", errors="replace")
         if rset:
             text = remap.rewrite_text_file(text, rset)
         from . import io_util
         io_util.write_text_safe(dest, text, encoding="utf-8")
     else:
-        # Opaque binary or unparsed XML — copy bytes unchanged.
+        # Opaque binary or unparsed XML: copy bytes unchanged.
         # (Asset-import XMLs technically have a SourceFile attribute, but
         # they reference the source TIF/GR2 by filename, not by mod folder,
         # so substring rewriting isn't needed in practice.)
@@ -1128,14 +1128,14 @@ def _emit_merged(
         # subtables (mirroring the game's own runtime behavior).
         parsed_a = treasure_table.parse_file(cf_a.path)
         parsed_b = treasure_table.parse_file(cf_b.path)
-        # No remap applied — TreasureTable refs are stat names (categories)
+        # No remap applied: TreasureTable refs are stat names (categories)
         # and identifiers we treat conservatively. (Future enhancement:
         # apply remaps.stats to the category strings if needed.)
         prefix = config.conflict_prefix if config.conflict_policy == "prefix" else None
         try:
             merged, _ = treasure_table.merge(parsed_a, parsed_b, prefix_b_on_conflict=prefix)
         except ValueError as e:
-            # itemtypes mismatch — refuse to silently mix.
+            # itemtypes mismatch: refuse to silently mix.
             raise MergeError(str(e)) from e
         treasure_table.write_file(merged, dest)
 
@@ -1188,20 +1188,20 @@ def _emit_merged(
         # GUI/metadata.lsf is in _STRUCTURED_LSX_MERGE_CATEGORIES, so the
         # branch above handles it. This explicit branch is kept as a
         # no-op marker for the old keep-A fallback path that used to live
-        # here — preserved for grep-ability but never reached.
+        # here: preserved for grep-ability but never reached.
         raise AssertionError(
             "GUI_METADATA should have been handled by the structured-LSX "
             "branch above; this branch is unreachable"
         )
 
     else:
-        # Other overlapping categories — fall back to "A wins, B is dropped".
+        # Other overlapping categories: fall back to "A wins, B is dropped".
         # First check whether the two are byte-identical: framework
         # boilerplate (story_header.div, shared goal scripts, Toolkit
         # placeholders) often appears in multiple mods by the same author
         # and is literally the same bytes. Surfacing a "conflict" for
         # those would be pure noise. We only record a conflict when the
-        # contents actually differ — that's the case the user might want
+        # contents actually differ: that's the case the user might want
         # to review.
         _copy_long(cf_a.path, dest)
         if _files_byte_identical(cf_a.path, cf_b.path):
@@ -1264,11 +1264,11 @@ def _files_byte_identical(a: Path, b: Path) -> bool:
 # Categories whose ``.lsx`` (or, with divine, ``.lsf``) form is a list of
 # UUID-/MapKey-keyed entries we should union when both mods provide one.
 # These are all "keyed list" files where two mods adding different entries
-# is the normal case — Progressions tables, SpellLists, ClassDescriptions,
+# is the normal case: Progressions tables, SpellLists, ClassDescriptions,
 # UI registrations, icon UV maps, the collapsed _merged.lsf root template
 # index, GUI metadata, etc.
 #
-# NOT included: ROOT_TEMPLATE_LSX/LSF and LEVEL_CONTENT_LSX/LSF — those are
+# NOT included: ROOT_TEMPLATE_LSX/LSF and LEVEL_CONTENT_LSX/LSF: those are
 # *per-entity* files (one file IS one root template / one level object).
 # If both mods have the same UUID-named file, that's a real conflict and
 # the keep-A behavior is correct.
@@ -1302,7 +1302,7 @@ def _try_merge_keyed_list_lsx(
     requires divine.exe to convert to LSX and back. Returns True if the
     merge succeeded and ``dest`` has been written; False if divine is
     unavailable for a needed conversion, the structure isn't union-able,
-    or any step failed — in which case the caller is responsible for
+    or any step failed: in which case the caller is responsible for
     the fallback (keep-A copy).
 
     Never raises: any failure short-circuits to False so the caller's
@@ -1350,7 +1350,7 @@ def _try_merge_keyed_list_lsx(
         _record_union_result(union, cf_a, cf_b, dest, result)
         return True
 
-    # At least one side is binary LSF — need divine for the conversion.
+    # At least one side is binary LSF: need divine for the conversion.
     if config.divine is None:
         return False
 
@@ -1452,6 +1452,6 @@ def _try_merge_gui_metadata(
     config: "MergeConfig",
     result: MergeResult,
 ) -> bool:
-    """Backward-compatible wrapper — GUI/metadata.lsf is now just one
+    """Backward-compatible wrapper: GUI/metadata.lsf is now just one
     more category handled by the generic keyed-list merger."""
     return _try_merge_keyed_list_lsx(cf_a, cf_b, ra, rb, dest, config, result)

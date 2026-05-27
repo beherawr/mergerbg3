@@ -3,17 +3,17 @@
 After ``core.merger`` writes the merged project, this module re-reads it
 and produces a structured report of any issues:
 
-- **Orphan references** — identifiers referenced but never defined.
+- **Orphan references**: identifiers referenced but never defined.
   Most are benign (base-game refs, refs to other-mod content) but they're
   worth surfacing so the user can spot a truly broken ref.
-- **Definition collisions** — same identifier defined more than once in
-  the *output*. This should never happen — if it does, the merger has a
+- **Definition collisions**: same identifier defined more than once in
+  the *output*. This should never happen: if it does, the merger has a
   bug. We surface it loudly.
-- **Missing dependencies** — UUIDs declared in meta.lsx Dependencies that
+- **Missing dependencies**: UUIDs declared in meta.lsx Dependencies that
   aren't referenced anywhere in content. Not an error (deps can be
   forward-declared for runtime), just an observation.
 
-The validator never modifies anything — it's pure inspection. The merger
+The validator never modifies anything: it's pure inspection. The merger
 calls it after every successful merge and attaches the report to
 ``MergeResult``.
 
@@ -165,7 +165,7 @@ def validate(project: Project) -> ValidationReport:
     for dep in project.mod_meta.dependencies:
         if dep.uuid.lower() not in referenced_uuids:
             report.unreferenced_dependencies.append(
-                f"{dep.name!r} ({dep.uuid}) — not referenced anywhere in content"
+                f"{dep.name!r} ({dep.uuid}): not referenced anywhere in content"
             )
 
     return report

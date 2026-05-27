@@ -53,7 +53,7 @@ def test_real_merge_shadow_dance_and_shadowdancer(tmp_path):
     assert (result.output_dir / "Mods" / new_folder / "meta.lsx").is_file()
     assert (result.output_dir / "Projects" / new_folder / "meta.lsx").is_file()
 
-    # The clean-union case produces no identifier clashes — only a soft
+    # The clean-union case produces no identifier clashes: only a soft
     # "file_overlap" record because both projects include a Toolkit-generated
     # MinimapAtlas.mmxml placeholder. That's not a real merge conflict; the
     # files are identical placeholders. We assert that's the only one.
@@ -230,7 +230,7 @@ def test_fail_policy_aborts_with_clash(tmp_path):
 
 
 def test_allows_non_empty_output_dir_without_bucket_collision(tmp_path):
-    """Stray content in the output_dir is fine — the merger only cares
+    """Stray content in the output_dir is fine: the merger only cares
     that its own bucket subfolders don't collide with existing mods.
     This is what makes canonical-workspace output work (the workspace
     is always non-empty)."""
@@ -251,7 +251,7 @@ def test_allows_non_empty_output_dir_without_bucket_collision(tmp_path):
 
 def test_refuses_collision_with_existing_mod_folder(tmp_path):
     """When the output_dir already contains a mod with the same folder
-    name we'd overwrite, refuse — that's silent data loss otherwise."""
+    name we'd overwrite, refuse: that's silent data loss otherwise."""
     # Pre-create Mods/X/ to simulate an existing mod with that folder name.
     (tmp_path / "Mods" / "X").mkdir(parents=True)
     (tmp_path / "Mods" / "X" / "meta.lsx").write_text("<lsx/>")
@@ -270,7 +270,7 @@ def test_refuses_collision_with_existing_mod_folder(tmp_path):
 
 
 def test_allow_existing_output_bypasses_collision_check(tmp_path):
-    """allow_existing_output=True skips the collision check — used by
+    """allow_existing_output=True skips the collision check: used by
     in-place mode, which intentionally overwrites the target mod."""
     (tmp_path / "Mods" / "X").mkdir(parents=True)
     (tmp_path / "Mods" / "X" / "meta.lsx").write_text("<lsx/>")

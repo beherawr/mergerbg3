@@ -17,7 +17,7 @@ import re
 
 import pytest
 
-# Headless Qt — needed before importing PySide6 widgets.
+# Headless Qt: needed before importing PySide6 widgets.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
@@ -68,7 +68,7 @@ def test_required_selectors_present():
 
 def test_stylesheet_applies_without_qt_warnings(qapp):
     """Applying the stylesheet to a real QApplication should not raise.
-    Qt logs QSS parser warnings to stderr but doesn't raise — we can't
+    Qt logs QSS parser warnings to stderr but doesn't raise: we can't
     easily intercept those, but at minimum the call must complete.
     """
     qapp.setStyleSheet(stylesheet())

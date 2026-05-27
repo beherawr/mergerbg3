@@ -26,7 +26,7 @@ Example::
 
 Key facts that diverge from the line-based ``.txt`` format:
 
-- Each ``<stat_object>`` carries its own UUID (the ``UUID`` field) — this
+- Each ``<stat_object>`` carries its own UUID (the ``UUID`` field): this
   is the toolkit's identity for the entry, separate from the human-readable
   ``Name``. The ``.txt`` form drops the UUID entirely; only the Name survives.
 - The ``Name`` field in ``.stats`` is the *unprefixed* form. The Toolkit
@@ -93,7 +93,7 @@ class StatsXmlField:
 
 @dataclass
 class StatsXmlObject:
-    """One ``<stat_object>`` block — one stats entry.
+    """One ``<stat_object>`` block: one stats entry.
 
     Field lookup is provided by ``field_by_name`` because the format is
     name-keyed within an object.
@@ -370,7 +370,7 @@ def merge(
             # Same UUID in both: silent dedup (A wins).
             if not diff_objects(a_substat_by_uuid[ukey], obj):
                 continue
-            # Same UUID, different content — treat as a UUID conflict.
+            # Same UUID, different content: treat as a UUID conflict.
             # Don't try to prefix-rename a UUID; just record and skip B's.
             conflicts.append(StatsXmlConflict(
                 name=obj.name or ukey,
@@ -386,7 +386,7 @@ def merge(
 
         a_obj = a_primary_by_name[name]
         if not diff_objects(a_obj, obj):
-            # Identical — silent dedup; A's copy is already in out.
+            # Identical: silent dedup; A's copy is already in out.
             continue
 
         # Two primaries with the same Name AND both opting into the game's

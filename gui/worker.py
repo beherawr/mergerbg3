@@ -6,12 +6,12 @@ whole duration. We use a ``QThread`` subclass that owns a ``MergeConfig``
 and emits Qt signals as the merge progresses.
 
 Signal semantics:
-- ``progress(phase, current, total, detail)`` — fired from
+- ``progress(phase, current, total, detail)``: fired from
   ``MergeConfig.progress_callback`` inside the worker thread; marshalled
   to the main thread via Qt's signal queue.
-- ``finished(result)`` — fired exactly once on successful completion with
+- ``finished(result)``: fired exactly once on successful completion with
   the ``MergeResult``.
-- ``failed(exc)`` — fired exactly once on any exception during the merge.
+- ``failed(exc)``: fired exactly once on any exception during the merge.
   The wizard's run page renders this as an error dialog rather than
   crashing the app.
 

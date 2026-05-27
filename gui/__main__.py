@@ -14,7 +14,7 @@ The entrypoint loop:
 
 Why spawn a new process instead of just re-creating the wizard?
     Qt's QWizard doesn't have a clean "reset everything and start over"
-    API — pages have stale state, the worker thread might still be
+    API: pages have stale state, the worker thread might still be
     holding resources, settings might have changed between sessions.
     A clean process-restart sidesteps all of that. The cost is ~1s of
     PyInstaller boot time, which is fine.
@@ -61,7 +61,7 @@ def main() -> int:
 
     exit_code = app.exec()
 
-    # Relaunch when the user completed a successful merge — the common
+    # Relaunch when the user completed a successful merge: the common
     # case is they want to immediately do another. ``relaunch_after_exit``
     # is set on the wizard by the ResultPage's "Merge another" button or
     # by the wizard's accepted-signal hook on a clean Finish.

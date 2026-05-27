@@ -144,7 +144,7 @@ def test_merge_shadow_dance_with_shadowdancer_no_conflicts():
     a = stats_text.parse_file(sd_passive)
     b = stats_text.parse_file(sd_invis)
     # Different stat types in the same file is technically unusual but the
-    # parser/merger don't care — only the reference index will warn later.
+    # parser/merger don't care: only the reference index will warn later.
     merged, conflicts = stats_text.merge(a, b)
     assert conflicts == []
     assert len(merged.entries) == len(a.entries) + len(b.entries)

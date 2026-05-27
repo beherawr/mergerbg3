@@ -24,7 +24,7 @@ The format details that bite you:
 - Some files (e.g. _merged.lsf.lsx) carry an `lslib_meta` attribute on
   `<version>` that records LSLib serialization options (e.g. "v1,bswap_guids").
   We preserve this verbatim.
-- Multiple `<region>` siblings inside `<save>` are legal — e.g. a banks file
+- Multiple `<region>` siblings inside `<save>` are legal: e.g. a banks file
   with VisualBank + MaterialBank + TextureBank as three regions.
 - Some toolkit-generated files start with a UTF-8 BOM. We handle both with
   and without.
@@ -160,7 +160,7 @@ class Version:
 class LsxDocument:
     """A parsed LSX file: version + one-or-more regions.
 
-    Preserves the order of regions as they appear in source — some Larian
+    Preserves the order of regions as they appear in source: some Larian
     code may be order-dependent, so we don't try to canonicalize.
     """
     version: Version
@@ -346,7 +346,7 @@ def parse_bytes(data: bytes) -> LsxDocument:
             regions.append(_parse_region(child))
 
     if version is None:
-        # Defensive default — every Larian file has <version>, but if one
+        # Defensive default: every Larian file has <version>, but if one
         # didn't we'd rather assume a sane modern build than fail outright.
         version = Version(major="4", minor="0", revision="0", build="0")
 

@@ -3,7 +3,7 @@
 Reported bug from user feedback (2026-05): when two mods both ship a
 ``newAtlas.dds`` (or other referenced binary asset) with differing
 content, the merger was dropping B's copy and logging "kept A's". This
-silently broke every icon B's UI referenced — the icon UV map pointed
+silently broke every icon B's UI referenced: the icon UV map pointed
 into a bitmap that no longer existed.
 
 The right behavior: keep BOTH files, by renaming B's to
@@ -11,7 +11,7 @@ The right behavior: keep BOTH files, by renaming B's to
 B's content (icon UV maps, root templates, stats Icon= rows, etc.) to
 the new filename. Path-keyed identity assets (``mod_publish_logo.png``,
 ``thumbnail.png``) deliberately stay keep-A because renaming wouldn't
-help — they're looked up at fixed paths.
+help: they're looked up at fixed paths.
 
 These tests are self-contained (synth mods under ``tmp_path``) so they
 pass on CI runners without access to the private fixture mods.
@@ -234,7 +234,7 @@ def test_colliding_dds_references_in_b_get_rewritten(tmp_path):
     b_uv_text = b_uv.read_text(encoding="utf-8")
 
     # B's UV map's TextureAtlas reference should NOT be "newAtlas.dds" any
-    # more — that path now resolves to A's atlas. It must point at the
+    # more: that path now resolves to A's atlas. It must point at the
     # renamed filename so icons render against B's bitmap.
     # We don't know the exact rename (depends on the suffix derivation),
     # but we know it must NOT be the unmodified original.
@@ -248,7 +248,7 @@ def test_colliding_dds_references_in_b_get_rewritten(tmp_path):
 
 def test_byte_identical_dds_files_dedupe_without_rename(tmp_path):
     """If both mods ship the exact same atlas (perhaps copied from a
-    shared community resource), there's no real conflict — the file
+    shared community resource), there's no real conflict: the file
     should dedupe to one copy with no rename. The user doesn't want to
     see a spurious "asset renamed" conflict for files that were already
     identical."""
@@ -295,7 +295,7 @@ def test_byte_identical_dds_files_dedupe_without_rename(tmp_path):
 def test_thumbnail_png_stays_keep_a_not_renamed(tmp_path):
     """``thumbnail.png`` is an IMAGE_ASSET, not in the rename-on-collide
     set. The Toolkit looks for it at a fixed path so renaming wouldn't
-    help — only one of them gets used as the project's thumbnail
+    help: only one of them gets used as the project's thumbnail
     regardless. Verify we still keep A's version and don't accidentally
     rename it now that the rename machinery exists.
     """
@@ -329,7 +329,7 @@ def test_thumbnail_png_stays_keep_a_not_renamed(tmp_path):
         conflict_policy="skip",
     ))
 
-    # Exactly one thumbnail in the output dir — A's.
+    # Exactly one thumbnail in the output dir: A's.
     proj_dir = out / "Projects" / "Merged"
     thumbnails = list(proj_dir.glob("*.png"))
     assert len(thumbnails) == 1

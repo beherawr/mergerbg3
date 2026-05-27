@@ -62,7 +62,7 @@ def test_union_appends_b_only_entries():
 
 def test_union_silently_dedupes_byte_identical_entries():
     """Two mods that both register the same widget (same UUID + same body)
-    shouldn't produce a conflict — just a silent dedup."""
+    shouldn't produce a conflict: just a silent dedup."""
     shared = _widget("uuid-shared", "shared/x.swf")
     a = _doc_with_widgets([shared])
     b = _doc_with_widgets([_widget("uuid-shared", "shared/x.swf")])  # identical
@@ -122,7 +122,7 @@ def test_union_preserves_order_a_then_new_b():
 
 
 def test_union_appends_b_only_region_whole():
-    """B introduces a region A doesn't have — the merged doc keeps both."""
+    """B introduces a region A doesn't have: the merged doc keeps both."""
     a = _doc_with_widgets([_widget("uuid-X", "A/X.swf")])
     b = lsx.LsxDocument(
         version=lsx.Version(major="4", minor="8", revision="0", build="500"),

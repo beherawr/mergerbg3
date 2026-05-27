@@ -61,7 +61,7 @@ def test_rewrite_value_rewrites_stat_tokens_in_functor_list():
 
 
 def test_rewrite_value_doesnt_rewrite_substrings():
-    """Whole-word match only — INVISIBLE shouldn't be touched if INVISIBLEKira
+    """Whole-word match only: INVISIBLE shouldn't be touched if INVISIBLEKira
     is also defined."""
     s = remap.RemapSet()
     s.stats.add("INVISIBLE", "ModB_INVISIBLE")
@@ -207,7 +207,7 @@ def test_rewrite_stats_xml_renames_name_field_and_uuid():
 
 
 def test_rewrite_localization_rewrites_contentuid():
-    """contentuid is the handle itself — gets the handle remap."""
+    """contentuid is the handle itself: gets the handle remap."""
     f = localization.LocaFile(entries=[
         localization.LocaEntry(
             contentuid="h11111111g1111g1111g1111g111111111111",
@@ -244,7 +244,7 @@ def test_rewrite_lsx_rewrites_translated_string_handle():
 
 def test_rewrite_lsx_path_attrs_use_path_remap():
     """SourceFile / Path / ResourcePath get the path-substring remap, not
-    the generic value rewrite — they're allowed to contain folder names
+    the generic value rewrite: they're allowed to contain folder names
     that look like stat tokens (e.g. ``Public/Mod_uuid/Banks/Foo.lsf``)."""
     n = lsx.Node(
         id="Test",

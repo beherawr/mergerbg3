@@ -2,17 +2,17 @@
 
 A BG3 Toolkit project has *two* meta.lsx files with different schemas:
 
-1. ``Mods/<ModFolder>/meta.lsx`` — the *mod identity* file that ships in
+1. ``Mods/<ModFolder>/meta.lsx``: the *mod identity* file that ships in
    the packed .pak. Defines who this mod is, what it depends on, what it
    conflicts with, and any Script Extender scripts registered.
-2. ``Projects/<ModFolder>/meta.lsx`` — the *Toolkit project identity* file.
+2. ``Projects/<ModFolder>/meta.lsx``: the *Toolkit project identity* file.
    Points at the mod by UUID, has its own UUID for the project itself.
    Used only by the Toolkit at edit time.
 
 The merger has to combine the first kind (dependency union, SE script
 union) and regenerate the second kind with a fresh project UUID.
 
-This module sits on top of ``core.lsx`` — it doesn't re-parse XML; it walks
+This module sits on top of ``core.lsx``: it doesn't re-parse XML; it walks
 the LsxDocument tree from that module and pulls out the meta-specific data
 into a typed model. Writing goes the other direction: build an LsxDocument
 and let ``core.lsx`` serialize it.
@@ -68,7 +68,7 @@ class ScriptRegistration:
 class ModMeta:
     """Parsed contents of ``Mods/<ModFolder>/meta.lsx``.
 
-    Designed to be regenerated from scratch when writing — we don't try
+    Designed to be regenerated from scratch when writing: we don't try
     to preserve byte-exact source structure for this file; the Toolkit
     rewrites it anyway whenever the user saves.
     """
@@ -81,7 +81,7 @@ class ModMeta:
     version64: str = "36028797018963968"  # default = 1.0.0.0 packed
     publish_handle: str = "0"
     publish_version: str = "0"
-    # Optional level-name attributes — usually empty strings
+    # Optional level-name attributes: usually empty strings
     character_creation_level_name: str = ""
     lobby_level_name: str = ""
     main_menu_background: str = ""
@@ -107,7 +107,7 @@ def parse_mod_meta(doc: lsx.LsxDocument) -> ModMeta:
     """Pull ModMeta out of a parsed LSX document (Mods/<Folder>/meta.lsx).
 
     Raises if the document doesn't have the expected ``Config / root /
-    ModuleInfo`` structure — that's a strong indicator we got handed a
+    ModuleInfo`` structure: that's a strong indicator we got handed a
     Projects/-style meta.lsx by mistake, and we want the caller to know.
     """
     config = doc.region("Config")
@@ -383,7 +383,7 @@ def generate_uuid() -> str:
 def union_dependencies(*deps_lists: list[Dependency]) -> list[Dependency]:
     """Merge dependency lists by UUID, keeping the first occurrence.
 
-    When the same dependency appears in multiple inputs (the common case —
+    When the same dependency appears in multiple inputs (the common case:
     every modded BG3 project depends on GustavX), we keep the first and
     drop the duplicates. Order from the first input is preserved.
     """
@@ -402,7 +402,7 @@ def union_scripts(*scripts_lists: list[ScriptRegistration]) -> list[ScriptRegist
 
     If the same script UUID appears in multiple inputs, the first one wins
     (subsequent registrations of the same script are dropped). Parameters
-    on a script are not merged — that would require knowing semantic types,
+    on a script are not merged: that would require knowing semantic types,
     and Script Extender treats script registration as atomic.
     """
     seen: set[str] = set()
@@ -466,7 +466,7 @@ def merge_mod_meta(
         publish_version="0",
         # NumPlayers: keep the max across inputs (more conservative for compat).
         num_players=str(max(int(m.num_players) for m in metas)),
-        # Empty placeholders — these would only matter for full-campaign mods
+        # Empty placeholders: these would only matter for full-campaign mods
         # which we don't currently target.
         character_creation_level_name="",
         lobby_level_name="",

@@ -57,7 +57,7 @@ a = Analysis(
         'pytest',
         # tkinter saves ~5MB; we use PySide6, not Tk.
         'tkinter',
-        # Qt modules we don't use — saves ~50MB combined.
+        # Qt modules we don't use: saves ~50MB combined.
         'PySide6.QtNetwork',
         'PySide6.QtWebEngineCore',
         'PySide6.QtWebEngineWidgets',
@@ -104,7 +104,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,                   # see header comment — AV false positives
+    upx=False,                   # see header comment: AV false positives
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

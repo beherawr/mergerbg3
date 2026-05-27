@@ -163,7 +163,7 @@ def test_union_conflicts_preserves_order_and_dedupes():
 
 
 def test_merge_mod_meta_keeps_se_scripts_from_either_input():
-    """The merged mod's Scripts list is the union — ShadowDance's two scripts
+    """The merged mod's Scripts list is the union: ShadowDance's two scripts
     are kept even though Shadowdancer registers none."""
     sd_mod = next((FIXTURES / "ShadowDance").glob("Mods/*/meta.lsx"))
     sdancer_mod = next((FIXTURES / "Shadowdancer").glob("Mods/*/meta.lsx"))
@@ -185,7 +185,7 @@ def test_merge_mod_meta_keeps_se_scripts_from_either_input():
 
 
 def test_merged_meta_writes_and_reparses_cleanly():
-    """End-to-end: produce a merged meta, serialize it, parse it back — fields
+    """End-to-end: produce a merged meta, serialize it, parse it back: fields
     survive the round-trip."""
     sd_mod = next((FIXTURES / "ShadowDance").glob("Mods/*/meta.lsx"))
     sdancer_mod = next((FIXTURES / "Shadowdancer").glob("Mods/*/meta.lsx"))

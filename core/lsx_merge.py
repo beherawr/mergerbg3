@@ -3,7 +3,7 @@
 Many BG3 LSF metadata files have the same shape: a single ``<region>``
 with one root ``<node>`` whose ``<children>`` are a list of registrations
 (UI widgets, root templates, content list entries, etc.). Merging two of
-these means unioning those child lists — keeping every entry from both
+these means unioning those child lists: keeping every entry from both
 sides, deduping by identity, and treating real conflicts (same identity
 but different content) per the user's conflict policy.
 
@@ -16,13 +16,13 @@ via ``divine.exe`` if the on-disk format is binary.
 Identity resolution:
     1. If a child node has a ``UUID`` attribute, that's its identity.
     2. Otherwise, the full serialized form of the node (id + attribute
-       set + children) is its identity — so byte-identical entries
+       set + children) is its identity: so byte-identical entries
        silently dedupe, and any other difference surfaces as a conflict.
 
 Conflict policy:
-    "a_wins" (default) — keep A's version, record a conflict.
-    "b_wins"           — overwrite with B's version, record a conflict.
-    "fail"             — raise on the first content-differing collision.
+    "a_wins" (default): keep A's version, record a conflict.
+    "b_wins"          : overwrite with B's version, record a conflict.
+    "fail"            : raise on the first content-differing collision.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ def union_documents(
         a_index: dict[str, _lsx.Node] = {}
         for child in a_root.children:
             ident = _node_identity(child)
-            # If A itself has duplicates, the first wins for indexing —
+            # If A itself has duplicates, the first wins for indexing:
             # we don't try to clean up A's pre-existing dupes.
             a_index.setdefault(ident, child)
 
@@ -130,14 +130,14 @@ def union_documents(
             ident = _node_identity(b_child)
             a_match = a_index.get(ident)
             if a_match is None:
-                # B-only entry — append (deep-copied so future edits don't
+                # B-only entry: append (deep-copied so future edits don't
                 # alias back into b's input tree).
                 a_root.children.append(_copy_node(b_child))
                 added_from_b += 1
                 continue
 
             if _nodes_equal(a_match, b_child):
-                # Byte-identical entry from both sides — silent dedup.
+                # Byte-identical entry from both sides: silent dedup.
                 deduped += 1
                 continue
 
@@ -157,7 +157,7 @@ def union_documents(
                     identity=ident, resolution="kept_b",
                 ))
             else:
-                # "a_wins" — leave A's entry. Just record the conflict.
+                # "a_wins": leave A's entry. Just record the conflict.
                 conflicts.append(UnionConflict(
                     region_id=b_region.id, node_id=b_child.id,
                     identity=ident, resolution="kept_a",
@@ -205,7 +205,7 @@ def _node_identity(node: _lsx.Node) -> str:
 def _fingerprint(node: _lsx.Node) -> str:
     """Order-sensitive fingerprint of a node's content. Used only as a
     fallback identity when no UUID/MapKey is present. Doesn't need to
-    be cryptographically strong — just deterministic and order-aware."""
+    be cryptographically strong: just deterministic and order-aware."""
     parts: list[str] = [f"id={node.id}"]
     for attr in node.attributes:
         parts.append(f"{attr.id}|{attr.type}|{attr.value or ''}|"

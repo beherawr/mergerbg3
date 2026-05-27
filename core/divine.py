@@ -1,6 +1,6 @@
 """Subprocess wrapper around LSLib's ``divine.exe``.
 
-The merger doesn't reimplement Larian's binary formats — it shells out to
+The merger doesn't reimplement Larian's binary formats: it shells out to
 ``divine.exe`` for every LSF↔LSX conversion. ``divine.exe`` is the CLI
 front-end to LSLib (the de-facto BG3 tool library); the user supplies its
 path once in app settings, and we cache it.
@@ -23,7 +23,7 @@ Divine's CLI surface:
                -s INPUT_DIR -d OUTPUT_DIR   (batch)
 
 This module:
-- never crashes if divine.exe is absent — it raises a typed exception that
+- never crashes if divine.exe is absent: it raises a typed exception that
   the GUI translates into "please point at divine.exe in Settings"
 - locates the executable from an explicit path passed at construction time
 - runs each conversion in a temp file when needed
@@ -64,7 +64,7 @@ class DivineNotFoundError(FileNotFoundError):
 class DivineError(RuntimeError):
     """Raised when divine.exe runs but reports an error.
 
-    ``stderr`` carries the original divine error message — we pass it
+    ``stderr`` carries the original divine error message: we pass it
     through verbatim because LSLib's messages are usually actionable.
     """
     def __init__(self, command: list[str], returncode: int,
@@ -85,7 +85,7 @@ class DivineError(RuntimeError):
 
 # Common install locations to probe when the user hasn't given us an
 # explicit path. We include the LSLib release layout and the Modders
-# Multitool bundled copy. Not exhaustive — we never *require* a hit here,
+# Multitool bundled copy. Not exhaustive: we never *require* a hit here,
 # just try to be helpful out of the box.
 DEFAULT_SEARCH_PATHS: list[str] = [
     r"C:\Program Files\LSLib\divine.exe",
@@ -101,12 +101,12 @@ def find_divine(explicit_path: Path | str | None = None) -> Path:
 
     Resolution order:
     1. ``explicit_path`` if given (must exist; raised if it doesn't)
-    2. ``shutil.which("divine.exe")`` — on PATH
-    3. ``shutil.which("divine")`` — for Linux/Wine setups
+    2. ``shutil.which("divine.exe")``: on PATH
+    3. ``shutil.which("divine")``: for Linux/Wine setups
     4. Each entry in DEFAULT_SEARCH_PATHS that happens to exist
 
     The first hit wins. We don't validate that the executable actually
-    is divine — caller code will discover that on first use.
+    is divine: caller code will discover that on first use.
     """
     tried: list[Path] = []
 
@@ -143,7 +143,7 @@ class Divine:
     only setting we use; LSLib supports older Divinity titles too but
     they're irrelevant here.
 
-    The wrapper is intentionally thin — it doesn't try to be a high-level
+    The wrapper is intentionally thin: it doesn't try to be a high-level
     binary-LSF-merge engine. The pipeline is always:
 
         binary LSF on disk → lsf_to_lsx(...) → LSX text → core.lsx.parse_*
@@ -174,7 +174,7 @@ class Divine:
         """Convert a binary LSF (or LSFX) to LSX text on disk.
 
         Both .lsf and .lsfx use the same LSOF container, so divine handles
-        them identically — the extension on output is whatever we ask for.
+        them identically: the extension on output is whatever we ask for.
         """
         self._run([
             "-a", "convert-resource",

@@ -1,11 +1,11 @@
 """Tests for the in-place merge mode (``MergeConfig.in_place=True``).
 
 These exercise three things:
-1. **Happy path** — in-place merge of two real fixtures: target gains B's
+1. **Happy path**: in-place merge of two real fixtures: target gains B's
    content, keeps A's identity, no conflicts emitted on a clean union.
-2. **Crash safety** — if the merge raises mid-way, the target directory
+2. **Crash safety**: if the merge raises mid-way, the target directory
    stays intact (the temp-write + atomic-replace pattern protects A).
-3. **No-leftover guarantee** — successful merges remove both the
+3. **No-leftover guarantee**: successful merges remove both the
    ``.merging_*`` and ``.backup_*`` sibling directories.
 """
 
@@ -178,7 +178,7 @@ def test_in_place_target_intact_when_merge_raises(tmp_path):
 
 def test_in_place_no_target_raises_cleanly(tmp_path):
     """``in_place=True`` with a non-existent ``output_dir`` should raise
-    MergeError rather than silently creating the target — the user asked
+    MergeError rather than silently creating the target: the user asked
     for an in-place merge, so an absent target is operator error."""
     a = Project.load(FIXTURES / "ShadowDance")
     b = Project.load(FIXTURES / "Shadowdancer")
@@ -220,7 +220,7 @@ def test_in_place_target_is_file_not_dir_raises(tmp_path):
 
 def test_direct_mode_unchanged_by_in_place_refactor(tmp_path):
     """The non-in-place (``in_place=False``) code path should behave
-    identically to before — same conflicts, same file count, same paths.
+    identically to before: same conflicts, same file count, same paths.
     Sanity check that splitting the merge entry didn't regress anything."""
     a = Project.load(FIXTURES / "ShadowDance")
     b = Project.load(FIXTURES / "Shadowdancer")

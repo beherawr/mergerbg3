@@ -1,4 +1,4 @@
-# Development dependencies. End users don't need any of these — the
+# Development dependencies. End users don't need any of these: the
 # released .exe is self-contained. Only needed if you're running the
 # test suite or building the exe yourself.
 

@@ -134,7 +134,7 @@ def test_loca_conversions_use_correct_action(tmp_path, monkeypatch):
 
 
 def test_lsfx_uses_same_path_as_lsf():
-    """We deliberately call .lsfx through lsf_to_lsx — both formats share
+    """We deliberately call .lsfx through lsf_to_lsx: both formats share
     the LSOF container, divine treats them identically when given i=lsf."""
     # This test is documentation-as-code; the wrapper has no separate
     # method, and that's intentional.

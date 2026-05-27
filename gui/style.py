@@ -23,7 +23,7 @@ Color palette:
     burgundy_dark       #6b2a1e   primary button hover
     forest              #4a5d3a   used sparingly for accent states (success)
 
-The stylesheet is OS-agnostic — same colors on Windows/macOS/Linux.
+The stylesheet is OS-agnostic: same colors on Windows/macOS/Linux.
 Fonts default to a serif family (Palatino Linotype on Windows, Book
 Antiqua / Palatino fallbacks elsewhere) for titles, with body kept in
 the same serif family but smaller for readability.
@@ -32,7 +32,7 @@ the same serif family but smaller for readability.
 from __future__ import annotations
 
 
-# Color constants — exposed so other modules (or future tests) can
+# Color constants: exposed so other modules (or future tests) can
 # reference them without duplicating hex codes.
 COLORS = {
     "parchment":      "#f3e6c4",

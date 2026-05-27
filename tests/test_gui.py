@@ -49,7 +49,7 @@ def _isolate_app_settings(tmp_path_factory, monkeypatch):
     """Every test gets an empty, throwaway settings file.
 
     Without this, GUI tests that build a ``MergeWizard()`` pick up the
-    real user's settings file from ``~/.config/bg3_mod_merger/`` —
+    real user's settings file from ``~/.config/bg3_mod_merger/``:
     which leads to false failures when ``test_wizard_full_drive_*``
     leaves a workspace_dir saved that later tests inherit.
 
@@ -112,7 +112,7 @@ def test_wizard_constructs_with_seven_pages(qapp):
     assert w.windowTitle() == "BG3 Mod Merger"
     assert len(w.pageIds()) == 7
     # With clean settings (the autouse isolation fixture gives every
-    # test an empty file), the workspace isn't configured yet — first
+    # test an empty file), the workspace isn't configured yet: first
     # run lands on WorkspacePage.
     assert w.startId() == w.PAGE_WORKSPACE
 
@@ -178,7 +178,7 @@ def test_wizard_relaunch_flag_set_on_successful_merge(qapp):
     """A successful Finish click flips relaunch_after_exit so __main__.py
     spawns a fresh process. Simulated by populating the state and
     firing the accepted signal directly. We use a non-None sentinel for
-    merge_result rather than building a full MergeResult — the flag
+    merge_result rather than building a full MergeResult: the flag
     check is just ``is not None``."""
     w = MergeWizard()
     # Pretend a merge ran and succeeded. The accepted-signal handler
@@ -193,7 +193,7 @@ def test_wizard_relaunch_flag_set_on_successful_merge(qapp):
 
 def test_wizard_relaunch_flag_not_set_when_merge_failed(qapp):
     """A failed merge that the user clicked Finish past shouldn't trigger
-    a relaunch — they might want to step away and debug, not loop right
+    a relaunch: they might want to step away and debug, not loop right
     back into a broken state."""
     w = MergeWizard()
     w.state.merge_result = None
@@ -203,7 +203,7 @@ def test_wizard_relaunch_flag_not_set_when_merge_failed(qapp):
 
 
 def test_wizard_state_is_shared_across_all_pages(qapp):
-    """All pages must share one WizardState instance — that's how
+    """All pages must share one WizardState instance: that's how
     merge_mode flows from SelectionPage to RunPage."""
     w = MergeWizard()
     states = {id(w.page(pid).state) for pid in w.pageIds()}
@@ -564,7 +564,7 @@ def test_worker_surfaces_merge_error_via_failed_signal(qapp, tmp_path):
     """The worker should surface MergeError through the 'failed' signal
     rather than crashing the thread silently."""
     out = tmp_path / "out"
-    # Pre-create the bucket subfolder we're about to write to — triggers
+    # Pre-create the bucket subfolder we're about to write to: triggers
     # the "already exists" collision check.
     (out / "Mods" / "X").mkdir(parents=True)
     (out / "Mods" / "X" / "meta.lsx").write_text("<lsx/>")

@@ -88,7 +88,7 @@ class WizardState:
     """
     settings: app_settings.Settings
 
-    # Discovery state — populated by SelectionPage when it scans.
+    # Discovery state: populated by SelectionPage when it scans.
     discovered: list[DiscoveredProject] = field(default_factory=list)
     discovery_errors: list[DiscoveryError] = field(default_factory=list)
 
@@ -100,7 +100,7 @@ class WizardState:
     #                             include B's content)
     merge_mode: str = "new_mod"
 
-    # Full loaded projects — populated at the SelectionPage→IdentityPage
+    # Full loaded projects: populated at the SelectionPage→IdentityPage
     # or SelectionPage→ReviewPage boundary, depending on mode.
     project_a: Project | None = None
     project_b: Project | None = None
@@ -135,8 +135,8 @@ class WorkspacePage(QWizardPage):
     or a sibling). Once configured, both paths persist to
     ``settings.json`` and subsequent runs zip through this page.
 
-    divine.exe is optional today — the merger doesn't require it for
-    clean-union merges — but we collect it now so it's ready when later
+    divine.exe is optional today: the merger doesn't require it for
+    clean-union merges: but we collect it now so it's ready when later
     sessions add LSF round-trip features.
     """
 
@@ -177,7 +177,7 @@ class WorkspacePage(QWizardPage):
         # --- divine.exe path (optional) ---
         self.divine_edit = QLineEdit()
         self.divine_edit.setPlaceholderText(
-            "Optional — e.g. C:\\Tools\\LSLib\\divine.exe"
+            "Optional: e.g. C:\\Tools\\LSLib\\divine.exe"
         )
         div_browse = QPushButton("Browse…")
         div_browse.clicked.connect(self._browse_divine)
@@ -231,7 +231,7 @@ class WorkspacePage(QWizardPage):
         if not ws:
             return False
         # Soft validation: workspace must be an existing directory. We
-        # don't require it to actually contain projects — an empty folder
+        # don't require it to actually contain projects: an empty folder
         # is fine (the user might be setting up before any mods exist).
         return Path(ws).is_dir()
 
@@ -266,9 +266,9 @@ class SelectionPage(QWizardPage):
     two and chooses a merge mode.
 
     Modes:
-    - **Make new mod from A + B** (default) — current behavior, output
+    - **Make new mod from A + B** (default): current behavior, output
       goes to a new directory the user names on the IdentityPage.
-    - **Combine B into A** — in-place merge. Mod A keeps its identity;
+    - **Combine B into A**: in-place merge. Mod A keeps its identity;
       mod B's content gets folded in. IdentityPage is skipped because
       there's nothing for the user to configure.
 
@@ -357,7 +357,7 @@ class SelectionPage(QWizardPage):
     def initializePage(self) -> None:
         """Trigger the workspace scan as soon as we land on the page.
         We call _rescan synchronously rather than deferring via
-        QTimer.singleShot — the deferred call could fire after the page
+        QTimer.singleShot: the deferred call could fire after the page
         is destroyed (which actually happened in the test suite). The
         _rescan implementation already calls processEvents internally
         so the "Scanning..." status update paints before disk I/O.
@@ -394,7 +394,7 @@ class SelectionPage(QWizardPage):
 
         self.status_label.setText(f"Scanning {ws}…")
         # Force a paint so the user sees the status update before we
-        # block on disk I/O (the scan is fast — meta.lsx only — but
+        # block on disk I/O (the scan is fast: meta.lsx only: but
         # for very large workspaces the progress message is reassuring).
         QApplication = type(self).__mro__[-1]  # dummy to avoid import
         try:
@@ -558,7 +558,7 @@ class SelectionPage(QWizardPage):
 
 
 def _project_tooltip(d: DiscoveredProject) -> str:
-    """Long tooltip shown on hover over a list item — full identity."""
+    """Long tooltip shown on hover over a list item: full identity."""
     parts = [
         f"Name:    {d.mod_name}",
         f"Author:  {d.author or '(unknown)'}",
@@ -608,7 +608,7 @@ class IdentityPage(QWizardPage):
         self.setTitle("Identity for the merged mod")
         self.setSubTitle(
             "Pick a name, folder, and UUID for the new mod. "
-            "Defaults are pre-filled — you can usually accept them."
+            "Defaults are pre-filled: you can usually accept them."
         )
 
         form = QFormLayout(self)
@@ -645,7 +645,7 @@ class IdentityPage(QWizardPage):
 
         # Output preview. The new mod always lands in the user's
         # configured workspace (so the Toolkit can see it). We don't
-        # offer a free-form output dir picker any more — the wizard's
+        # offer a free-form output dir picker any more: the wizard's
         # workspace setup is authoritative.
         self.output_preview = QLabel()
         self.output_preview.setWordWrap(True)
@@ -757,9 +757,9 @@ class PolicyPage(QWizardPage):
         layout = QVBoxLayout(self)
 
         self.policy_combo = QComboBox()
-        self.policy_combo.addItem("Skip — Project A wins, Project B's drops", "skip")
-        self.policy_combo.addItem("Prefix — rename Project B's identifier", "prefix")
-        self.policy_combo.addItem("Fail — abort the merge on any clash", "fail")
+        self.policy_combo.addItem("Skip: Project A wins, Project B's drops", "skip")
+        self.policy_combo.addItem("Prefix: rename Project B's identifier", "prefix")
+        self.policy_combo.addItem("Fail: abort the merge on any clash", "fail")
         self.policy_combo.currentIndexChanged.connect(self._on_policy_changed)
 
         row = QHBoxLayout()
@@ -851,7 +851,7 @@ class ReviewPage(QWizardPage):
         from core.references import ReferenceIndex, find_clashes
         a, b = self.state.project_a, self.state.project_b
         if a is None or b is None:
-            self.summary.setPlainText("(missing projects — go back and re-pick)")
+            self.summary.setPlainText("(missing projects: go back and re-pick)")
             return
 
         ia = ReferenceIndex.build(a)
@@ -889,7 +889,7 @@ class ReviewPage(QWizardPage):
 
         if not clashes:
             lines.append("Identifier clashes: NONE.")
-            lines.append("This is a clean union — no user choices required.")
+            lines.append("This is a clean union: no user choices required.")
         else:
             lines.append(f"Identifier clashes: {len(clashes)}")
             # Group by kind for readability.
@@ -1062,7 +1062,7 @@ class RunPage(QWizardPage):
 
 
 class ResultPage(QWizardPage):
-    """Final page — shows summary of what happened plus an Open button."""
+    """Final page: shows summary of what happened plus an Open button."""
 
     def __init__(self, state: WizardState) -> None:
         super().__init__()
@@ -1096,7 +1096,7 @@ class ResultPage(QWizardPage):
 
         result = self.state.merge_result
         if result is None:
-            self.summary.setPlainText("(no result — this shouldn't happen)")
+            self.summary.setPlainText("(no result: this shouldn't happen)")
             return
 
         report = self.state.validation_report
@@ -1196,7 +1196,7 @@ class MergeWizard(QWizard):
     edge in the page graph).
     """
 
-    # Stable page IDs — these are what we return from nextId() and read
+    # Stable page IDs: these are what we return from nextId() and read
     # from currentId(). Using named constants keeps the conditional flow
     # readable and avoids brittle integer indexing in tests.
     PAGE_WORKSPACE = 0
@@ -1260,7 +1260,7 @@ class MergeWizard(QWizard):
         """Pick the wizard's start page based on saved settings.
 
         Returns PAGE_SELECTION when the user has a saved workspace that
-        still exists on disk — this is the "returning user" path and
+        still exists on disk: this is the "returning user" path and
         skips a click-Next on the workspace page. Falls back to
         PAGE_WORKSPACE for first-run users or when the saved workspace
         path no longer resolves (drive unplugged, folder renamed, etc.)
@@ -1276,7 +1276,7 @@ class MergeWizard(QWizard):
         """Fired when the user clicks Finish on the ResultPage.
 
         We set ``relaunch_after_exit`` so ``gui/__main__.py`` spawns a
-        fresh instance after this one closes — common case is the user
+        fresh instance after this one closes: common case is the user
         wants to do another merge right away. Only relaunch when a
         merge actually happened and didn't error; a Finish click after
         a failed merge shouldn't loop the user into starting over with
@@ -1290,7 +1290,7 @@ class MergeWizard(QWizard):
 
     def nextId(self) -> int:
         """Override the linear next-page logic to skip IdentityPage when
-        the user picked "Combine B into A" — there's nothing for them to
+        the user picked "Combine B into A": there's nothing for them to
         configure in that mode (A's identity is locked).
 
         QWizard calls this on the *current* page; we return -1 to signal
@@ -1344,7 +1344,7 @@ def _phase_label(phase: str) -> str:
 
 def _escape(s: str) -> str:
     """Tiny HTML-escape for label rendering. We don't need a full HTML
-    parser — just the four characters that break rich-text labels."""
+    parser: just the four characters that break rich-text labels."""
     return (
         s.replace("&", "&amp;")
         .replace("<", "&lt;")

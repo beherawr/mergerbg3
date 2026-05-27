@@ -11,7 +11,7 @@ Supports two workspace layouts:
 2. **Self-contained project** (zipped or exported form): a folder that
    contains its own four-bucket subtree (``<projectdir>/Editor/Mods/<X>/``,
    ``<projectdir>/Mods/<X>/``, etc.). Useful when the user has projects
-   sitting outside the Toolkit workspace — backups, sharing, etc.
+   sitting outside the Toolkit workspace: backups, sharing, etc.
 
 We scan for BOTH because the user might have one or both in the same
 workspace. Self-contained projects at the workspace root are found
@@ -22,7 +22,7 @@ appear twice in the picker).
 The merger's full ``Project.load()`` walks the entire mod subtree
 (thousands of files for a level mod). Doing that for every folder would
 make the GUI sluggish. This module reads only each candidate's
-``meta.lsx`` — under a second even for workspaces with dozens of mods.
+``meta.lsx``: under a second even for workspaces with dozens of mods.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from . import lsx as _lsx
 
 
 # Folders that exist at the root of a canonical Toolkit workspace and
-# are NOT individual mods — they're either the four shared buckets or
+# are NOT individual mods: they're either the four shared buckets or
 # Toolkit/base-game directories. We skip them when looking for
 # self-contained project subdirs at the workspace root.
 _RESERVED_WORKSPACE_FOLDERS = frozenset({
@@ -53,12 +53,12 @@ class DiscoveredProject:
     (``Editor/Mods/<X>``, ``Mods/<X>``, ``Public/<X>``, ``Projects/<X>``).
     For canonical-layout mods this is the workspace itself; for
     self-contained projects this is the project's own directory.
-    ``mod_folder_name`` is ``<X>`` — the subfolder name that's shared
+    ``mod_folder_name`` is ``<X>``: the subfolder name that's shared
     across all four buckets.
 
     All identity fields are read from ``Mods/<X>/meta.lsx``. We
     deliberately do NOT count files, walk the tree, or build a reference
-    index here — that work happens only after the user selects a project.
+    index here: that work happens only after the user selects a project.
     """
     data_root: Path
     mod_folder_name: str
@@ -66,7 +66,7 @@ class DiscoveredProject:
     mod_uuid: str
     author: str
     description: str
-    # Hint to the GUI about the discovered layout — useful for warnings
+    # Hint to the GUI about the discovered layout: useful for warnings
     # ("merging in-place into a self-contained project will collapse it
     # into the workspace") and for choosing the right output strategy.
     # Values: "canonical" (shared workspace) or "self_contained".
@@ -75,7 +75,7 @@ class DiscoveredProject:
     @property
     def display_label(self) -> str:
         if self.author:
-            return f"{self.mod_name}  —  by {self.author}"
+            return f"{self.mod_name} :  by {self.author}"
         return self.mod_name
 
     @property
@@ -83,7 +83,7 @@ class DiscoveredProject:
         """Backward-compatible alias for code that wants 'the path of
         this project' as a single value. For canonical-layout mods this
         is the data_root (workspace); for self-contained projects it's
-        the project directory. Useful for display only — to actually
+        the project directory. Useful for display only: to actually
         load the project, callers should pass ``data_root`` and
         ``mod_folder_name`` to ``Project.load()`` so the mod is loaded
         in isolation from any siblings sharing the workspace."""
@@ -94,14 +94,14 @@ class DiscoveredProject:
         """A unique key for this mod within (and across) workspaces.
         Two DiscoveredProjects are the same mod iff their identity_keys
         match. Use this for equality checks rather than comparing
-        ``project_root`` alone — in a canonical workspace many mods
+        ``project_root`` alone: in a canonical workspace many mods
         share the same data_root, so project_root isn't unique."""
         return (self.data_root, self.mod_folder_name)
 
 
 @dataclass
 class DiscoveryError:
-    """A folder that didn't load — surfaced in the GUI's "skipped" panel."""
+    """A folder that didn't load: surfaced in the GUI's "skipped" panel."""
     folder: Path
     reason: str
 
@@ -128,7 +128,7 @@ def discover_projects(
 
     # --- Pass 1: canonical workspace layout -------------------------------
     # Each mod is at <workspace>/Mods/<X>/meta.lsx. This is the BG3
-    # Toolkit's native layout — the user's actual Data folder.
+    # Toolkit's native layout: the user's actual Data folder.
     canonical_mods_dir = workspace / "Mods"
     canonical_folder_names: set[str] = set()
     if canonical_mods_dir.is_dir():
@@ -179,7 +179,7 @@ def discover_projects(
         )
         if disc is None:
             continue
-        # Deduplicate against canonical finds — if this self-contained
+        # Deduplicate against canonical finds: if this self-contained
         # project is just a snapshot of a mod that's already active in
         # the canonical workspace, don't list it twice.
         if disc.mod_folder_name in canonical_folder_names:

@@ -28,7 +28,7 @@ these rewriters on mod B's content before appending to mod A's.
 Design choices worth noting:
 
 - Remaps are *one-way* (old -> new). We never need the inverse.
-- Remaps don't conflict-detect themselves — the planning phase ensures
+- Remaps don't conflict-detect themselves: the planning phase ensures
   each before-value has only one after-value. If we ever see "x -> y"
   and "x -> z" we raise immediately rather than silently dropping one.
 - Empty remap tables are common and cheap (no-op). The merger always
@@ -49,7 +49,7 @@ from . import stats_text, stats_xml, localization, lsx
 
 @dataclass
 class _BaseRemap:
-    """Common dict-backed mapping with safety checks. Not used directly —
+    """Common dict-backed mapping with safety checks. Not used directly:
     the per-kind subclasses give us type safety at call sites."""
     mapping: dict[str, str] = field(default_factory=dict)
 
@@ -84,7 +84,7 @@ class PathRemap(_BaseRemap):
     """Remaps file path strings used inside LSX attribute values.
 
     Folder-rename: ``"Public/<OldFolder>/..."`` -> ``"Public/<NewFolder>/..."``.
-    These are string substitutions, not path normalizations — we match
+    These are string substitutions, not path normalizations: we match
     forward-slash POSIX form because that's what Larian uses on disk
     inside string values, regardless of OS.
     """
@@ -210,7 +210,7 @@ def _rewrite_joined_handles(text: str, handles: HandleRemap) -> str:
     return _HANDLE_WITH_VERSION_RE.sub(sub, text)
 
 
-# Plain handle (without ;version) — appears inside LSX TranslatedString
+# Plain handle (without ;version): appears inside LSX TranslatedString
 # attributes, loca contentuid, occasionally raw in Osiris goals.
 _HANDLE_RE = re.compile(
     r"\bh[0-9a-f]{8}g[0-9a-f]{4}g[0-9a-f]{4}g[0-9a-f]{4}g[0-9a-f]{12}\b"
@@ -272,7 +272,7 @@ def rewrite_stats_text(stats: stats_text.StatsFile, remaps: RemapSet) -> None:
         entry.name = remaps.stats.apply(entry.name)
         if entry.using is not None:
             entry.using = remaps.stats.apply(entry.using)
-        # Special-case Icon — single-token icon names get the icon remap.
+        # Special-case Icon: single-token icon names get the icon remap.
         new_data: list[tuple[str, str]] = []
         for key, value in entry.data:
             if key == "Icon":
@@ -297,7 +297,7 @@ def rewrite_stats_xml(stats: stats_xml.StatsXmlFile, remaps: RemapSet) -> None:
                 if v := fld.extra.get("value"):
                     fld.extra["value"] = remaps.uuids.apply(v.lower())
                 continue
-            # The Icon field — icon name (single token).
+            # The Icon field: icon name (single token).
             if fld.name == "Icon":
                 if v := fld.extra.get("value"):
                     fld.extra["value"] = remaps.icons.apply(v)

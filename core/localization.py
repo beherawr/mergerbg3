@@ -1,7 +1,7 @@
 """Parser/writer for BG3's `.loca.xml` localization format.
 
 These files live under ``Mods/<ModFolder>/Localization/<Language>/<name>.xml``
-(or sometimes ``.loca.xml`` — same content either way). Each contains a flat
+(or sometimes ``.loca.xml``: same content either way). Each contains a flat
 list of translation entries.
 
 Example::
@@ -22,7 +22,7 @@ Critical facts:
   to the same translation entry.
 - ``version`` is a small integer string. Stats/.txt files reference loca
   with the joined form ``"<handle>;<version>"``. The version is a Larian
-  cache-busting mechanism — bumping it tells the game to re-load this
+  cache-busting mechanism: bumping it tells the game to re-load this
   string after content changes.
 - The body of ``<content>`` is the actual translated text. It may contain
   HTML-style inline tags Larian invented (``<LSTag Type="Status"
@@ -87,7 +87,7 @@ class LocaEntry:
 class LocaFile:
     """A parsed .loca.xml file."""
     entries: list[LocaEntry] = field(default_factory=list)
-    # xmlns attributes from the source — preserved on write so the output
+    # xmlns attributes from the source: preserved on write so the output
     # is byte-equivalent for Toolkit-generated files.
     nsmap: dict[str | None, str] = field(default_factory=dict)
 
@@ -137,7 +137,7 @@ class LocaParseError(ValueError):
 
 def parse_bytes(data: bytes) -> LocaFile:
     """Parse a .loca.xml file from bytes."""
-    # Strip BOM if present — observed files don't have one but we're defensive.
+    # Strip BOM if present: observed files don't have one but we're defensive.
     if data.startswith(b"\xef\xbb\xbf"):
         data = data[3:]
 
@@ -146,7 +146,7 @@ def parse_bytes(data: bytes) -> LocaFile:
     except etree.XMLSyntaxError as e:
         raise LocaParseError(f"invalid XML: {e}") from e
 
-    # Local name comparison — Toolkit-generated files don't put contentList
+    # Local name comparison: Toolkit-generated files don't put contentList
     # in a namespace, but the xmlns attributes show up via nsmap.
     if etree.QName(root).localname != "contentList":
         raise LocaParseError(f"expected root <contentList>, got <{root.tag}>")
@@ -246,7 +246,7 @@ def merge(a: LocaFile, b: LocaFile) -> tuple[LocaFile, list[LocaConflict]]:
                 text=entry.text,
             ))
         elif b_entry is not None and b_entry.text != entry.text:
-            # Real conflict — A's text wins by default.
+            # Real conflict: A's text wins by default.
             out.entries.append(entry)
             conflicts.append(LocaConflict(handle=entry.contentuid, a=entry, b=b_entry))
         else:

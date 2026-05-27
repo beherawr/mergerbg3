@@ -18,11 +18,11 @@ each identifier kind, it records two sets:
 
 Five identifier kinds today (matching the plan's §4):
 
-1. UUIDs — for root templates, banks, resources, dependencies
-2. Stat names — the line-based identifiers in `.txt` and Name fields in `.stats`
-3. Loca handles — ``h<32 chars>`` referencing translation entries
-4. Icon names — referenced from stats' ``Icon`` field and root templates
-5. File path strings — usually under SourceFile= attributes inside LSX
+1. UUIDs: for root templates, banks, resources, dependencies
+2. Stat names: the line-based identifiers in `.txt` and Name fields in `.stats`
+3. Loca handles: ``h<32 chars>`` referencing translation entries
+4. Icon names: referenced from stats' ``Icon`` field and root templates
+5. File path strings: usually under SourceFile= attributes inside LSX
 
 Performance: walking the two real fixture projects produces ~hundreds of
 identifiers, not millions. We optimize for clarity over speed; if a future
@@ -62,7 +62,7 @@ class Location:
 
     ``file`` is relative to the project root for log-friendliness. ``hint``
     is a short human-readable description like ``"stats Target_BackstabK"``
-    or ``"root template MapKey"`` — surfaced in the GUI's conflict view.
+    or ``"root template MapKey"``: surfaced in the GUI's conflict view.
     """
     file: Path
     hint: str
@@ -88,7 +88,7 @@ _UUID_RE = re.compile(
 )
 
 # Stat names (left-hand side of `new entry "..."` and right-hand side of
-# `using "..."`) — we parse them via stats_text/stats_xml, not regex.
+# `using "..."`): we parse them via stats_text/stats_xml, not regex.
 
 
 # Bareword identifier inside a stats data value (e.g. the "INVISIBLEKira"
@@ -99,7 +99,7 @@ _STAT_TOKEN_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]{1,}\b")
 
 # Subset of identifier-shaped words that are Larian DSL keywords / base
 # game enums and should NOT be indexed as stat name references. This
-# keeps the orphan-references list short and useful. Not exhaustive — we
+# keeps the orphan-references list short and useful. Not exhaustive: we
 # can grow it as patterns emerge; missing one is harmless.
 _STAT_TOKEN_DENYLIST: set[str] = {
     # Damage types
@@ -221,7 +221,7 @@ class ReferenceIndex:
     def orphan_references(self, kind: IdKind) -> list[IdentifierEntry]:
         """Identifiers that are referenced but never defined in this project.
 
-        These are not necessarily errors — many will resolve against base
+        These are not necessarily errors: many will resolve against base
         game data (``WPN_Dagger``, the GustavX UUID, etc.) or against
         another mod loaded at runtime. The merger's validation pass
         surfaces them for the user to inspect, not to block.
@@ -252,7 +252,7 @@ class ReferenceIndex:
         """Walk a project and produce its ReferenceIndex.
 
         Each file category contributes definitions/references via a
-        dedicated scanner below. Order doesn't matter — the index is a
+        dedicated scanner below. Order doesn't matter: the index is a
         bag of identifier locations.
         """
         index = cls()
@@ -260,7 +260,7 @@ class ReferenceIndex:
         # Top-level mod identity from meta.lsx.
         _scan_mod_meta(index, project)
 
-        # Stats — both forms.
+        # Stats: both forms.
         for cf in project.files_by_category(FileCategory.STATS_TXT):
             _scan_stats_txt(index, cf)
         for cf in project.files_by_category(FileCategory.STATS_XML):
@@ -280,7 +280,7 @@ class ReferenceIndex:
             for cf in project.files_by_category(cat):
                 _scan_lsx(index, cf)
 
-        # Story goal source files (Osiris) — references spells by name and
+        # Story goal source files (Osiris): references spells by name and
         # game UUIDs by string substitution. We do a regex scan rather than
         # a proper Osiris parse.
         for cf in project.files_by_category(FileCategory.STORY_GOAL):
@@ -361,7 +361,7 @@ def _scan_stats_txt(index: ReferenceIndex, cf: CatalogedFile) -> None:
                     _loc(cf, f"UUID in {entry.name!r}.{key}"),
                 )
             # Stat name refs embedded in functor-list syntax like
-            # ``ApplyStatus(INVISIBLEKira, 100, 1)``. Permissive — may
+            # ``ApplyStatus(INVISIBLEKira, 100, 1)``. Permissive: may
             # over-include but the denylist trims the obvious noise and
             # leftover orphans are harmless warnings.
             for token in _extract_stat_tokens(value):
@@ -446,7 +446,7 @@ def _scan_localization(index: ReferenceIndex, cf: CatalogedFile) -> None:
     """Every <content contentuid="h..."> is a LOCA_HANDLE definition.
 
     The text body may contain LSTag references to statuses/passives by
-    name — those are STAT_NAME references. We don't currently parse the
+    name: those are STAT_NAME references. We don't currently parse the
     inline tags' attributes (rarely useful for merging), but the regex
     scanner picks up any embedded handles and UUIDs.
     """
@@ -513,7 +513,7 @@ def _scan_lsx(index: ReferenceIndex, cf: CatalogedFile) -> None:
                         _loc(cf, f"LSX {node.id}.{attr.id}"),
                     )
 
-                # UUIDs in the value — either a definition or a reference,
+                # UUIDs in the value: either a definition or a reference,
                 # depending on the attribute id.
                 for u in _extract_uuids(val):
                     if attr.id in DEF_ATTRS:
@@ -585,7 +585,7 @@ def find_clashes(
 
     The merger feeds this into the per-format diff to decide whether each
     clash needs user resolution. We exclude UUIDs that are dependency
-    references (e.g. both projects depending on GustavX) — those aren't
+    references (e.g. both projects depending on GustavX): those aren't
     clashes, just shared deps.
     """
     clashes: list[IdentifierClash] = []

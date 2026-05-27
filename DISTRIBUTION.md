@@ -7,7 +7,7 @@ into people's hands without you needing to touch PyInstaller manually.
 
 ### 1. Create a GitHub repository
 
-1. Sign in to https://github.com — free account is fine
+1. Sign in to https://github.com: free account is fine
 2. New repo → name it something like `bg3-mod-merger`
 3. Make it **Public** (so the Actions runner minutes are free; private
    repos get 2,000 free minutes/month, which is also plenty)
@@ -102,13 +102,13 @@ Click **More info** → **Run anyway**.
 
 Real solution: code-sign the exe. Either:
 
-- Buy an **EV (Extended Validation) code signing certificate** —
+- Buy an **EV (Extended Validation) code signing certificate**:
   ~$200-400/year from DigiCert, Sectigo, etc. Eliminates SmartScreen
   warnings immediately.
-- Use a **standard code signing certificate** — cheaper (~$80/year)
+- Use a **standard code signing certificate**: cheaper (~$80/year)
   but SmartScreen still warns until your exe builds up enough downloads
   to gain "reputation". Takes weeks/months.
-- **azuresigntool** + a Microsoft hardware token + EV cert — what most
+- **azuresigntool** + a Microsoft hardware token + EV cert: what most
   small software shops do.
 
 For a free hobby project shared with the BG3 community, the README note
@@ -119,11 +119,11 @@ unless you're getting real complaints.
 
 Users find new versions one of three ways:
 
-1. **"Watch" your repo on GitHub** — they get an email on every release.
+1. **"Watch" your repo on GitHub**: they get an email on every release.
    Tell power users about this in the README.
-2. **Re-visiting the releases page** — most people just check
+2. **Re-visiting the releases page**: most people just check
    periodically.
-3. **Nexus Mods notifications** — if you maintain a Nexus page, users
+3. **Nexus Mods notifications**: if you maintain a Nexus page, users
    who endorsed/tracked it get a notification on update.
 
 There's no auto-update mechanism built into the app currently. Adding

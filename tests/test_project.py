@@ -1,4 +1,4 @@
-"""Tests for ``core.project`` — walk and catalog real fixture projects."""
+"""Tests for ``core.project``: walk and catalog real fixture projects."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def test_load_shadowdancer():
     counts = p.file_count_by_category()
     assert counts.get(FileCategory.MODEL_GR2) == 3
     assert counts.get(FileCategory.TEXTURE_TIF) == 3
-    # 7 import-settings XMLs (3 GR2 + 4 TIF/PNG-related — but we found 3 TIF;
+    # 7 import-settings XMLs (3 GR2 + 4 TIF/PNG-related: but we found 3 TIF;
     # the actual count we measured during research was 7 XML files total
     # including the .lsx files. The asset XMLs (paired with GR2/TIF) = 6:
     # ShaBla3.xml, ShadBla_BM.xml, ShadBla_NM.xml, ShadBla_PM.xml + 2 more
@@ -80,7 +80,7 @@ def test_load_rejects_non_project_directory(tmp_path):
 
 def test_load_rejects_mismatched_folder_name(tmp_path):
     """If meta.lsx's Folder attribute doesn't match the on-disk directory,
-    raise — this is a corrupted project state we shouldn't try to merge."""
+    raise: this is a corrupted project state we shouldn't try to merge."""
     # Construct a minimal fake project where the folder name disagrees.
     bad_folder = tmp_path / "Mods" / "WrongName_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     bad_folder.mkdir(parents=True)

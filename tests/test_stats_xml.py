@@ -14,7 +14,7 @@ from .helpers import all_stats_xml
 @pytest.mark.parametrize("path", all_stats_xml(), ids=lambda p: str(p.relative_to(p.parents[6])))
 def test_parses_real_file(path):
     """Every real .stats file parses cleanly. Empty <stat_objects/> is a
-    legitimate Toolkit state — the user has declared a stat schema in the
+    legitimate Toolkit state: the user has declared a stat schema in the
     file but added no entries yet."""
     parsed = stats_xml.parse_file(path)
     assert parsed.stat_object_definition_id  # always a UUID

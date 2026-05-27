@@ -44,7 +44,7 @@ def test_shadowdance_localization_content():
 
     assert len(parsed.entries) == 11
     handles = parsed.handles()
-    # Spell display names — these are referenced from Spell_Target.txt etc.
+    # Spell display names: these are referenced from Spell_Target.txt etc.
     assert "h2db009beg91d6g310eg03c0g9e0885029fce" in handles
     assert "h6564e6bcg6d91g70f9ge706ga9f0a4eec3e3" in handles
 
@@ -59,7 +59,7 @@ def test_shadowdancer_localization_with_inline_tags():
     sdancer = FIXTURES / "Shadowdancer"
     path = next(sdancer.glob("Mods/*/Localization/*/english.xml"))
     parsed = localization.parse_file(path)
-    # Shadowdancer has 3 entries — confirm they round-trip.
+    # Shadowdancer has 3 entries: confirm they round-trip.
     assert len(parsed.entries) == 3
 
 
@@ -98,7 +98,7 @@ def test_extract_handles_handles_multiple():
 
 
 def test_extract_handles_skips_uuids():
-    """A real UUID like d21296e6-898c-4072-8c24-4c5a26f249f0 shouldn't match —
+    """A real UUID like d21296e6-898c-4072-8c24-4c5a26f249f0 shouldn't match:
     different format (has dashes, 36 chars, no leading h)."""
     sample = 'value="d21296e6-898c-4072-8c24-4c5a26f249f0"'
     found = localization.extract_handles(sample)
@@ -144,7 +144,7 @@ def test_merge_takes_higher_version_for_same_text():
 
 
 def test_merge_conflict_for_same_handle_different_text():
-    """Same handle pointing at different text is a real conflict — extremely
+    """Same handle pointing at different text is a real conflict: extremely
     rare in practice (would mean one mod is misusing another's handle) but
     must be surfaced."""
     a = localization.LocaFile(entries=[

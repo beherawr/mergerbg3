@@ -29,7 +29,7 @@ Grammar (informal):
 Notes from the wild:
 - Files use CRLF on Windows. We preserve that on write to match exactly.
 - Toolkit-generated files end every entry with a blank line. We do too.
-- Values can contain spaces, semicolons, parentheses, commas — anything
+- Values can contain spaces, semicolons, parentheses, commas: anything
   except a literal " inside the quoted string. We have not seen escaping
   for embedded quotes in any official or community mod, so the parser
   treats `"..."` as "everything up to the next unescaped quote." If we
@@ -61,7 +61,7 @@ _QUOTED = re.compile(r'"([^"]*)"')
 class StatsEntry:
     """One ``new entry ...`` block in a stats .txt file.
 
-    The ``data`` list is ordered and may contain duplicate keys — the
+    The ``data`` list is ordered and may contain duplicate keys: the
     format permits a key to appear multiple times (e.g. the same boost
     repeated), and we preserve that faithfully.
 
@@ -175,16 +175,16 @@ def parse_text(text: str) -> StatsFile:
         stripped = raw_line.strip()
 
         if not stripped:
-            # Blank line — separates entries. The current entry is "closed"
+            # Blank line: separates entries. The current entry is "closed"
             # but we don't push to `entries` yet (we already did so when it
             # was created). Just flush any accumulated comments downstream.
             if current is None:
-                # blank line before any entry — preserve only if comments came with it
+                # blank line before any entry: preserve only if comments came with it
                 pending_comments = []
             continue
 
         if stripped.startswith("//"):
-            # Line comment — attach to the next entry, or trail the previous.
+            # Line comment: attach to the next entry, or trail the previous.
             pending_comments.append(raw_line)
             continue
 
@@ -217,7 +217,7 @@ def parse_text(text: str) -> StatsFile:
             key, value = _parse_quoted_args(stripped[len("data"):], 2)
             current.data.append((key, value))
         else:
-            # Unknown keyword — be strict so we notice format changes early.
+            # Unknown keyword: be strict so we notice format changes early.
             raise StatsParseError(
                 f"unrecognized line in stats .txt: {stripped!r}"
             )
@@ -252,7 +252,7 @@ def parse_file(path: Path | str) -> StatsFile:
 # --- Writing --------------------------------------------------------------
 
 def _quote(s: str) -> str:
-    """Wrap a string in double quotes. We do NOT escape internal quotes —
+    """Wrap a string in double quotes. We do NOT escape internal quotes:
     the format doesn't, and inserting them would corrupt the file. If the
     value contains a literal ``"``, raise: that's a bug in upstream data."""
     if '"' in s:
@@ -328,7 +328,7 @@ class StatsConflict:
     """Surfaced when two entries share a name but differ in content.
 
     The merger UI presents these to the user. The merger itself never
-    silently picks a side — it raises this for the caller to resolve.
+    silently picks a side: it raises this for the caller to resolve.
     """
     name: str
     a: StatsEntry
@@ -404,7 +404,7 @@ def merge(
 
         a_entry = a_by_name[entry.name]
         if not diff_entries(a_entry, entry):
-            # Identical — silent dedup. (We keep A's copy already in out.)
+            # Identical: silent dedup. (We keep A's copy already in out.)
             continue
 
         # Real conflict.

@@ -57,7 +57,7 @@ def test_using_at_conventional_position_roundtrips():
 
 def test_programmatic_entry_without_using_index_emits_conventional():
     """Code that constructs StatsEntry directly (without going through the
-    parser) shouldn't have to set using_index — the serializer should
+    parser) shouldn't have to set using_index: the serializer should
     default to the conventional position."""
     e = stats_text.StatsEntry(
         name="X", type="SpellData", using="Parent",
@@ -70,7 +70,7 @@ def test_programmatic_entry_without_using_index_emits_conventional():
 
 def test_using_index_preserved_when_prefixed_on_conflict():
     """When the merger renames an entry on conflict, the using_index has
-    to come along — otherwise the merged file's ordering would differ from
+    to come along: otherwise the merged file's ordering would differ from
     B's source even when there's no semantic reason to change it."""
     a_text = (
         'new entry "Foo"\r\n'
@@ -128,7 +128,7 @@ def test_substats_with_shared_name_distinct_uuids_all_kept():
         _make_substat("Parent_substat", "00000000-0000-0000-0000-000000000004"),
         _make_substat("Parent_substat", "00000000-0000-0000-0000-000000000005"),
     ])
-    # Merge against an empty file of the same type — all of A's must pass through.
+    # Merge against an empty file of the same type: all of A's must pass through.
     b = stats_xml.StatsXmlFile(sod, [])
     merged, conflicts = stats_xml.merge(a, b)
     assert conflicts == []
@@ -267,7 +267,7 @@ def test_empty_stats_xml_file_is_legitimate():
     without raising; the merger copies it through."""
     sod = "00000000-0000-0000-0000-000000000000"
     empty = stats_xml.StatsXmlFile(sod, [])
-    # Serialize and reparse — empty file round-trips.
+    # Serialize and reparse: empty file round-trips.
     body = empty.to_xml_bytes()
     reparsed = stats_xml.parse_bytes(body)
     assert reparsed.stat_object_definition_id == sod

@@ -28,7 +28,7 @@ def test_shadow_dance_indexes_its_stat_names(shadow_dance_index):
     assert "BlockReactK" in defs
     assert "SeeInDaDarkK" in defs
     assert "INVISIBLEKira" in defs
-    # From .stats (unprefixed forms — ShadowDance has BackstabK, ShadowDanceK):
+    # From .stats (unprefixed forms: ShadowDance has BackstabK, ShadowDanceK):
     assert "BackstabK" in defs
     assert "ShadowDanceK" in defs
 
@@ -60,7 +60,7 @@ def test_shadow_dance_self_referential_stats_resolve(shadow_dance_index):
 def test_shadow_dance_dependency_uuid_is_a_reference(shadow_dance_index):
     """The GustavX dependency UUID is referenced (from meta.lsx) but
     not defined (it belongs to another mod). Shows up as an orphan ref,
-    which is fine — orphans are warnings, not errors."""
+    which is fine: orphans are warnings, not errors."""
     gustavx = "cb555efe-2d9e-131f-8195-a89329d218ea"
     assert gustavx in shadow_dance_index.referenced_values(IdKind.UUID)
     assert gustavx not in shadow_dance_index.defined_values(IdKind.UUID)
@@ -105,7 +105,7 @@ def test_shadowdancer_indexes_weapon_stat(shadowdancer_index):
 
 def test_shadowdancer_references_wpn_dagger_as_orphan(shadowdancer_index):
     """The weapon inherits from WPN_Dagger, which belongs to the base game.
-    It's an orphan reference (no definition within the mod) — correct behavior."""
+    It's an orphan reference (no definition within the mod): correct behavior."""
     orphans = {e.value for e in shadowdancer_index.orphan_references(IdKind.STAT_NAME)}
     assert "WPN_Dagger" in orphans
 
@@ -114,7 +114,7 @@ def test_shadowdancer_root_template_uuid_referenced_from_stats(shadowdancer_inde
     """Weapon.txt has data "RootTemplate" "d21296e6-...". The RT UUID is
     a reference; the RT file itself sits in RootTemplates/d21296e6-...lsf
     (binary, so we don't yet index that file's MapKey). For now, the
-    reference is in the index but might be orphan-flagged — that's
+    reference is in the index but might be orphan-flagged: that's
     expected until we wire up the divine.exe path for LSF parsing."""
     rt_uuid = "d21296e6-898c-4072-8c24-4c5a26f249f0"
     assert rt_uuid in shadowdancer_index.referenced_values(IdKind.UUID)
@@ -127,7 +127,7 @@ def test_no_clashes_between_real_fixtures(shadow_dance_index, shadowdancer_index
     """The two fixture projects were chosen to be a clean union. We expect
     zero identifier clashes (stat names, UUIDs, loca handles, icons, paths
     all disjoint). The shared GustavX *dependency* is a reference in both,
-    NOT a definition in either — so it doesn't count as a clash."""
+    NOT a definition in either: so it doesn't count as a clash."""
     clashes = find_clashes(shadow_dance_index, shadowdancer_index)
     assert clashes == [], (
         f"Expected zero clashes, got: "
@@ -154,7 +154,7 @@ def test_clash_detection_finds_shared_stat_name():
 
 def test_clash_detection_ignores_shared_references():
     """Both projects referencing the same UUID (e.g. GustavX) but neither
-    defining it isn't a clash — it's expected behavior for dependencies."""
+    defining it isn't a clash: it's expected behavior for dependencies."""
     a = ReferenceIndex()
     b = ReferenceIndex()
     loc_a = references.Location(file=None, hint="A")  # type: ignore[arg-type]

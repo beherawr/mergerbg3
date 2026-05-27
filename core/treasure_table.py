@@ -2,7 +2,7 @@
 
 Lives at ``Public/<ModFolder>/Stats/Generated/TreasureTable.txt`` (one level
 shallower than the regular stats .txt files under ``Generated/Data/``).
-The format is NOT the same as ``new entry "X"`` style — it has its own
+The format is NOT the same as ``new entry "X"`` style: it has its own
 grammar that the game's loot system parses.
 
 Example::
@@ -37,7 +37,7 @@ Notes from real fixtures:
   should not silently mix.
 - ``CanMerge 1`` is the game's RUNTIME merge flag: at load time, BG3 will
   combine same-named tables across mods if both opt in. Our static merge
-  is independent of this — when two mods statically merge, we have to
+  is independent of this: when two mods statically merge, we have to
   pick one set of subtables OR concatenate them. We choose concatenation
   for identical-name tables both carrying ``CanMerge 1``; for mismatched
   flags we fall back to the conflict policy.
@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-# Single quoted string with no internal escape handling — matches stats_text.
+# Single quoted string with no internal escape handling: matches stats_text.
 _QUOTED = re.compile(r'"([^"]*)"')
 
 
@@ -65,7 +65,7 @@ class TreasureSubtable:
     """One ``new subtable`` block: a drop-count range plus a list of object
     rows. Each row is ``(category, weights_csv)`` where ``weights_csv`` is
     the raw comma-separated weight string preserved verbatim."""
-    drop_count: str  # e.g. "1,1" — min,max as a string (preserved verbatim)
+    drop_count: str  # e.g. "1,1": min,max as a string (preserved verbatim)
     objects: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -282,13 +282,13 @@ def merge(
 
     Strategy:
     - The itemtypes header must match. (If it doesn't, Larian has changed
-      the rarity column ordering between the two source mods — refuse to
+      the rarity column ordering between the two source mods: refuse to
       silently mix because weight columns wouldn't line up.)
     - Tables unique to either input → kept.
     - Same table name in both:
         * identical content → silent dedup
         * **both have CanMerge=1** → concatenate B's subtables onto A's. This
-          mirrors the game's own runtime behavior for CanMerge tables —
+          mirrors the game's own runtime behavior for CanMerge tables:
           the merged loot pool draws from both authors' subtables. No
           conflict is recorded since this is the documented intent.
         * different content + ``prefix_b_on_conflict`` set → rename B's
@@ -315,11 +315,11 @@ def merge(
     for t in a.tables:
         b_table = next((bt for bt in b.tables if bt.name == t.name), None)
         if b_table is not None and _tables_equal(t, b_table):
-            # identical — dedup
+            # identical: dedup
             out.tables.append(t)
             continue
         if b_table is not None and t.can_merge and b_table.can_merge:
-            # CanMerge concatenation — combine subtables.
+            # CanMerge concatenation: combine subtables.
             combined = TreasureTable(
                 name=t.name, flags=list(t.flags),
                 subtables=list(t.subtables) + list(b_table.subtables),

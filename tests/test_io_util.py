@@ -5,7 +5,7 @@ helpers are no-ops. We verify both the prefix-application logic (across
 platforms by checking what the helper would produce) and end-to-end
 writes (cross-platform since regular paths just work).
 
-The merger's reproduction case — a >260-char absolute path — is tested
+The merger's reproduction case: a >260-char absolute path: is tested
 on every platform by constructing such a path under tmp_path and
 verifying io_util.write_bytes_safe doesn't choke on it.
 """

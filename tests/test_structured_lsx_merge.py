@@ -2,7 +2,7 @@
 
 The reported bug: ``.lsx`` files like ``Progressions.lsx`` and
 ``SpellLists.lsx`` were getting copied verbatim ("A wins, B dropped")
-when both mods provided one. They're keyed-list LSX files — the right
+when both mods provided one. They're keyed-list LSX files: the right
 behavior is to union the children by UUID.
 
 These tests are self-contained (build tiny in-memory projects via
@@ -21,7 +21,7 @@ from core.project import FileCategory, Project
 
 
 # ---------------------------------------------------------------------------
-# Helpers — build minimal mod projects on disk.
+# Helpers: build minimal mod projects on disk.
 # ---------------------------------------------------------------------------
 
 
@@ -59,7 +59,7 @@ def _write_progressions_lsx(path: Path, entries: list[tuple[str, str]]) -> None:
     """Write a Progressions.lsx with ``(uuid, name)`` entries.
 
     Real progressions.lsx has many more attributes per entry, but the
-    merger only cares about identity (UUID) and structural equality —
+    merger only cares about identity (UUID) and structural equality:
     these stub entries exercise the union machinery without needing the
     full BG3 progression schema.
     """
@@ -116,7 +116,7 @@ def _make_mod(
 
 def test_progressions_lsx_unions_entries_when_both_mods_provide_one(tmp_path):
     """When both mods have a Progressions.lsx, the merged output must
-    contain every entry from both — not just mod A's version.
+    contain every entry from both: not just mod A's version.
     Reported bug from user feedback (2026-05): 'progressions.lsx don't
     get merged'."""
     workspace = tmp_path / "ws"
@@ -222,7 +222,7 @@ def test_progressions_lsx_duplicate_uuid_keeps_a(tmp_path):
 def test_progressions_lsx_byte_identical_dedupes_silently(tmp_path):
     """If both mods have an identical Progressions.lsx (perhaps copied
     from a shared template), the merged output should just have one copy
-    — no conflict, no duplicated entries."""
+   : no conflict, no duplicated entries."""
     workspace = tmp_path / "ws"
     out = tmp_path / "out"
 
@@ -251,7 +251,7 @@ def test_progressions_lsx_byte_identical_dedupes_silently(tmp_path):
         encoding="utf-8"
     )
     # Both Same_1 entries deduped to one occurrence. (Counting raw text
-    # is rough but adequate — if dedup failed we'd see two of each.)
+    # is rough but adequate: if dedup failed we'd see two of each.)
     assert text.count("Same_1") == 1
     assert text.count("Same_2") == 1
     # Byte-identical → no entry conflict raised.
@@ -268,7 +268,7 @@ def test_progressions_lsx_byte_identical_dedupes_silently(tmp_path):
 def test_progressions_lsx_only_in_one_mod_passes_through(tmp_path):
     """When only one mod has a Progressions.lsx, it's emitted by the
     single-input path (parse + remap + write). This already worked
-    before the structured-merge change — verifying we didn't regress it.
+    before the structured-merge change: verifying we didn't regress it.
     """
     workspace = tmp_path / "ws"
     out = tmp_path / "out"
