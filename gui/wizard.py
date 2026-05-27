@@ -143,10 +143,9 @@ class WorkspacePage(QWizardPage):
     def __init__(self, state: WizardState) -> None:
         super().__init__()
         self.state = state
-        self.setTitle("Workspace setup")
+        self.setTitle("Workspace Setup:")
         self.setSubTitle(
-            "Tell the app where your mod projects live. "
-            "Your settings persist between runs."
+            "Tell the app where your Data folder is."
         )
 
         form = QFormLayout(self)
@@ -154,7 +153,7 @@ class WorkspacePage(QWizardPage):
         # --- Workspace directory ---
         self.workspace_edit = QLineEdit()
         self.workspace_edit.setPlaceholderText(
-            "e.g. C:\\Users\\You\\Documents\\Larian Studios\\Baldur's Gate 3\\Mods"
+            "e.g. C:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\Data"
         )
         self.workspace_edit.textChanged.connect(lambda _: self.completeChanged.emit())
         ws_browse = QPushButton("Browse…")
@@ -164,10 +163,10 @@ class WorkspacePage(QWizardPage):
         ws_row.addWidget(ws_browse)
         ws_widget = QWidget()
         ws_widget.setLayout(ws_row)
-        form.addRow("Workspace folder:", ws_widget)
+        form.addRow("Data folder:", ws_widget)
 
         ws_hint = QLabel(
-            "<i>This folder should contain your project subdirectories "
+            "<i>Your Data folder should contain your project subdirectories "
             "(each with Editor/, Mods/, Projects/, Public/ underneath). "
             "The wizard will scan it for mods you can merge.</i>"
         )
@@ -190,7 +189,7 @@ class WorkspacePage(QWizardPage):
 
         div_hint = QLabel(
             "<i>Optional. Used for LSF binary conversion in advanced merge "
-            "scenarios. You can leave this blank for now and set it later.</i>"
+            "scenarios. https://github.com/Norbyte/lslib/releases/</i>"
         )
         div_hint.setWordWrap(True)
         form.addRow("", div_hint)
@@ -1209,7 +1208,7 @@ class MergeWizard(QWizard):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("BG3 Mod Merger")
+        self.setWindowTitle("  | BG3 Mod Merger | by For_Kiramay |")
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self.resize(820, 600)
