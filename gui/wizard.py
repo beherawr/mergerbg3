@@ -1234,7 +1234,26 @@ class MergeWizard(QWizard):
         self.setWindowTitle("| BG3 Mod Merger | by For_Kiramay |")
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
-        self.resize(820, 600)
+
+        # QWizard is a QDialog subclass, and on Windows dialogs get a
+        # stripped-down frame with only a close (X) button by default:
+        # no minimize or maximize. Explicitly add the full window-control
+        # set so the title bar has minimize, maximize, and close like a
+        # normal application window.
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
+
+        # Default launch size. Larger than the old 820x600, which felt
+        # cramped (the mod lists and summaries had little room). A saved
+        # geometry from a previous run, if present, overrides this below.
+        self.resize(1024, 760)
+        # Don't let the user shrink it down to where the wizard buttons
+        # or lists get clipped.
+        self.setMinimumSize(820, 600)
 
         # Set when a merge completes successfully and we want main() to
         # show a fresh wizard (in the same process) after this one
@@ -1245,6 +1264,11 @@ class MergeWizard(QWizard):
 
         self.state = WizardState(settings=app_settings.load())
 
+        # Restore the window size/position from the last session, if we
+        # saved one. restoreGeometry overrides the resize() above, so a
+        # returning user gets exactly the size and placement they left
+        # the window at. First-run users (no saved geometry) keep the
+        # 1024x760 default.
         geom = self.state.settings.window_geometry
         if geom:
             try:

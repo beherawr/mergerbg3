@@ -776,3 +776,67 @@ def test_result_page_clean_validation_says_no_issues(qapp, tmp_path):
 
     assert "No issues found." in text
     assert "collision" not in text.lower()
+
+
+def test_wizard_default_size_is_larger(qapp):
+    """First-run window (no saved geometry) opens at the roomier default
+    size, not the old cramped 820x600. The autouse settings-isolation
+    fixture guarantees there's no saved geometry to override it."""
+    w = MergeWizard()
+    # Default is 1024x760. We assert a floor rather than exact equality so
+    # a future bump doesn't break the test, but the old 820x600 fails.
+    assert w.width() >= 1024
+    assert w.height() >= 760
+
+
+def test_wizard_has_minimize_and_maximize_buttons(qapp):
+    """The window must expose minimize and maximize controls, not just
+    the close (X) button that QDialog-derived windows get by default."""
+    from PySide6.QtCore import Qt
+    w = MergeWizard()
+    flags = w.windowFlags()
+    assert flags & Qt.WindowMinimizeButtonHint, "missing minimize button"
+    assert flags & Qt.WindowMaximizeButtonHint, "missing maximize button"
+    assert flags & Qt.WindowCloseButtonHint, "missing close button"
+
+
+def test_wizard_has_sensible_minimum_size(qapp):
+    """A minimum size keeps the user from shrinking the window to where
+    the lists and wizard buttons get clipped."""
+    w = MergeWizard()
+    assert w.minimumWidth() >= 800
+    assert w.minimumHeight() >= 580
+
+
+def test_wizard_persists_window_geometry(qapp, tmp_path, monkeypatch):
+    """Resizing the window and closing it should save the geometry, and a
+    fresh wizard should restore it. This is what makes window-size
+    adjustments stick across runs.
+
+    We assert that a geometry blob is written on close and consumed on
+    the next construction; we don't assert exact pixel dimensions because
+    the headless 'offscreen' Qt platform clamps window sizes (there's no
+    real screen). The save/restore round-trip itself is the contract.
+    """
+    import json
+
+    # Point settings at a clean temp file (the autouse fixture already
+    # isolates, but we want to read the file back here explicitly).
+    settings_path = tmp_path / "geom_settings.json"
+    monkeypatch.setattr(app_settings, "SETTINGS_PATH", settings_path)
+
+    w1 = MergeWizard()
+    w1.resize(1200, 900)
+    w1.close()  # triggers closeEvent -> saveGeometry -> settings.save
+
+    assert settings_path.exists(), "settings file not written on close"
+    saved = json.loads(settings_path.read_text())
+    assert saved.get("window_geometry"), (
+        "window_geometry was not persisted on close"
+    )
+
+    # A new wizard should pick up and apply that saved geometry without
+    # raising. (Exact restored size is screen-dependent; we assert the
+    # restore path runs cleanly and the blob is consumed.)
+    w2 = MergeWizard()
+    assert w2.state.settings.window_geometry == saved["window_geometry"]
