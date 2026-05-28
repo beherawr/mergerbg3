@@ -24,7 +24,7 @@ from core.discover import DiscoveredProject
 from core.project import Project
 from gui import settings as app_settings
 from gui.wizard import (
-    IdentityPage, MergeWizard, PolicyPage, ReviewPage, SelectionPage,
+    IdentityPage, MergeWizard, PolicyPage, ResultPage, ReviewPage, SelectionPage,
     WizardState, WorkspacePage, _default_folder, _default_author,
 )
 from gui.worker import MergeWorker
@@ -109,7 +109,7 @@ def test_wizard_constructs_with_seven_pages(qapp):
     """The redesigned wizard has 7 pages: workspace, selection, identity,
     policy, review, run, result."""
     w = MergeWizard()
-    assert w.windowTitle() == "BG3 Mod Merger"
+    assert w.windowTitle() == "| BG3 Mod Merger | by For_Kiramay |"
     assert len(w.pageIds()) == 7
     # With clean settings (the autouse isolation fixture gives every
     # test an empty file), the workspace isn't configured yet: first
@@ -684,3 +684,95 @@ def test_wizard_full_drive_combine_mode_shows_inplace_summary(qapp, tmp_path):
     text = review.summary.toPlainText()
     assert "COMBINE INTO A" in text
     assert "modified in place" in text
+
+
+def test_result_page_names_specific_definition_collisions(qapp, tmp_path):
+    """The ResultPage validation summary must name the *specific* colliding
+    stat name / UUID and where it was defined, not just a count.
+
+    Regression for user feedback (2026-05): the summary said
+    "[stat_name]: 1 collision(s)" with no indication of WHICH stat, so the
+    user couldn't act on it. We now print the identifier value and its
+    definition locations.
+    """
+    from pathlib import Path as _Path
+
+    from core import validate
+    from core.references import IdentifierEntry, IdKind, Location
+
+    state = WizardState(settings=app_settings.Settings())
+
+    # Minimal fake merge result: ResultPage only reads output_dir,
+    # emissions, conflicts, skipped_files off it for the summary header.
+    state.merge_result = merger.MergeResult(
+        output_dir=tmp_path / "out",
+        new_project=None,
+    )
+
+    # Hand-build a validation report with one stat_name collision and one
+    # uuid collision, each carrying its definition locations: exactly the
+    # shape validate.validate() would produce.
+    report = validate.ValidationReport()
+    report.definition_collisions = {
+        "stat_name": [
+            IdentifierEntry(
+                kind=IdKind.STAT_NAME,
+                value="SDancer_Shadow_Step",
+                definitions=[
+                    Location(file=_Path("Public/A/Stats/Generated/Data/Spell.txt"),
+                             hint="stats SDancer_Shadow_Step"),
+                    Location(file=_Path("Public/B/Stats/Generated/Data/Spell.txt"),
+                             hint="stats SDancer_Shadow_Step"),
+                ],
+            ),
+        ],
+        "uuid": [
+            IdentifierEntry(
+                kind=IdKind.UUID,
+                value="d21296e6-898c-4072-8c24-4c5a26f249f0",
+                definitions=[
+                    Location(file=_Path("Public/A/RootTemplates/_merged.lsf.lsx"),
+                             hint="root template MapKey"),
+                    Location(file=_Path("Public/B/RootTemplates/_merged.lsf.lsx"),
+                             hint="root template MapKey"),
+                ],
+            ),
+        ],
+    }
+    state.validation_report = report
+
+    page = ResultPage(state)
+    page.initializePage()
+    text = page.summary.toPlainText()
+
+    # The specific colliding identifiers must appear by name.
+    assert "SDancer_Shadow_Step" in text, (
+        f"colliding stat name not surfaced in summary:\n{text}"
+    )
+    assert "d21296e6-898c-4072-8c24-4c5a26f249f0" in text, (
+        f"colliding UUID not surfaced in summary:\n{text}"
+    )
+    # And the definition locations should be shown so the user can find them.
+    assert "Public/A/Stats/Generated/Data/Spell.txt" in text
+    assert "Public/B/RootTemplates/_merged.lsf.lsx" in text
+    # The count line is still present.
+    assert "collision(s)" in text
+
+
+def test_result_page_clean_validation_says_no_issues(qapp, tmp_path):
+    """Sanity: with a clean report, the summary shows the no-issues line
+    and does NOT print any collision detail."""
+    from core import validate
+
+    state = WizardState(settings=app_settings.Settings())
+    state.merge_result = merger.MergeResult(
+        output_dir=tmp_path / "out", new_project=None,
+    )
+    state.validation_report = validate.ValidationReport()  # empty == clean
+
+    page = ResultPage(state)
+    page.initializePage()
+    text = page.summary.toPlainText()
+
+    assert "No issues found." in text
+    assert "collision" not in text.lower()

@@ -91,7 +91,7 @@ jobs:
                   StringStruct(u'FileDescription', u'BG3 Mod Merger'),
                   StringStruct(u'FileVersion', u'$v'),
                   StringStruct(u'InternalName', u'bg3_mod_merger'),
-                  StringStruct(u'OriginalFilename', u'bg3_mod_merger.exe'),
+                  StringStruct(u'OriginalFilename', u'BG3 Mod Merger.exe'),
                   StringStruct(u'ProductName', u'BG3 Mod Merger'),
                   StringStruct(u'ProductVersion', u'$v'),
                 ])]),
@@ -110,7 +110,7 @@ jobs:
       - name: Rename exe to include version
         run: |
           $v = "${{ steps.version.outputs.version }}"
-          Move-Item -Path "dist\bg3_mod_merger.exe" -Destination "dist\bg3_mod_merger-$v.exe"
+          Move-Item -Path "dist\BG3 Mod Merger.exe" -Destination "dist\BG3 Mod Merger-$v.exe"
         shell: pwsh
 
       - name: Upload the exe as an artifact
@@ -118,15 +118,15 @@ jobs:
         # step below only fires for tag pushes.
         uses: actions/upload-artifact@v4
         with:
-          name: bg3_mod_merger-${{ steps.version.outputs.version }}
-          path: dist/bg3_mod_merger-*.exe
+          name: BG3-Mod-Merger-${{ steps.version.outputs.version }}
+          path: dist/BG3 Mod Merger-*.exe
           retention-days: 30
 
       - name: Create GitHub Release with the exe attached
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/bg3_mod_merger-*.exe
+          files: dist/BG3 Mod Merger-*.exe
           generate_release_notes: true
           draft: false
           prerelease: false

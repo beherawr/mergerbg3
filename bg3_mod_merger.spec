@@ -100,7 +100,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='bg3_mod_merger',
+    name='BG3 Mod Merger',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
