@@ -5,46 +5,40 @@ Run with ``python -m gui`` from the repo root, or via the bundled
 
 The entrypoint loop:
     main()
-      ↳ apply the RPG-fantasy stylesheet to the QApplication
-      ↳ create + show the wizard
-      ↳ when the wizard closes after a *successful* merge, spawn a
-        fresh instance of the same process and exit. The user almost
-        always wants to do another merge right after, so this saves
-        the explicit re-launch step.
+      apply the RPG-fantasy stylesheet to the QApplication
+      show a wizard
+      when that wizard finishes after a successful merge, show a FRESH
+        wizard in the same process (the user usually wants to do another
+        merge right away)
+      when a wizard is closed/cancelled without relaunch, quit
 
-Why spawn a new process instead of just re-creating the wizard?
-    Qt's QWizard doesn't have a clean "reset everything and start over"
-    API: pages have stale state, the worker thread might still be
-    holding resources, settings might have changed between sessions.
-    A clean process-restart sidesteps all of that. The cost is ~1s of
-    PyInstaller boot time, which is fine.
+Why re-create the wizard in-process instead of relaunching the exe?
+    The obvious "relaunch" implementation spawns a new copy of the
+    program and lets the old one exit. For a PyInstaller *onefile* exe
+    that is unreliable: each launch unpacks the app into a temporary
+    ``_MEIxxxxx`` folder, and a process that relaunches itself the
+    instant it exits races the dying process's temp-folder cleanup
+    against the newborn process's temp-folder extraction. In practice
+    this surfaces as "Failed to remove temporary directory" plus
+    "Failed to start embedded python interpreter" on the second or
+    third cycle.
+
+    Building a brand-new ``MergeWizard`` inside the already-running
+    QApplication gives the same clean-slate behavior (fresh state, fresh
+    settings load, fresh worker thread) with none of the process-restart
+    fragility. The QApplication stays up the whole time; only the wizard
+    widget is replaced.
 """
 
 from __future__ import annotations
 
-import os
 import sys
 
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from gui.style import stylesheet
 from gui.wizard import MergeWizard
-
-
-def _relaunch_args() -> tuple[str, list[str]]:
-    """Return the (program, args) tuple to relaunch this app.
-
-    Two cases:
-    - **Frozen** (PyInstaller bundle): ``sys.executable`` IS the .exe;
-      no additional args needed. PyInstaller sets ``sys.frozen`` to
-      ``True`` so we can detect this reliably.
-    - **Dev mode** (``python -m gui``): ``sys.executable`` is the
-      Python interpreter; we need ``-m gui`` to re-enter the package.
-    """
-    if getattr(sys, "frozen", False):
-        return sys.executable, []
-    return sys.executable, ["-m", "gui"]
 
 
 def main() -> int:
@@ -56,22 +50,52 @@ def main() -> int:
     # wizard pops up inherits this automatically.
     app.setStyleSheet(stylesheet())
 
-    wizard = MergeWizard()
-    wizard.show()
+    # We manage quitting ourselves: closing a wizard shouldn't tear down
+    # the QApplication, because we may be about to show another wizard.
+    # Without this, the app would exit the moment the first wizard closes
+    # and we'd never get the chance to relaunch in-process.
+    app.setQuitOnLastWindowClosed(False)
 
-    exit_code = app.exec()
+    # Hold the current wizard in a mutable cell so the nested callbacks
+    # can swap it. A plain local would be captured by-value at definition
+    # time; a one-element list (or dict) lets us mutate the reference.
+    current: dict[str, MergeWizard | None] = {"wizard": None}
 
-    # Relaunch when the user completed a successful merge: the common
-    # case is they want to immediately do another. ``relaunch_after_exit``
-    # is set on the wizard by the ResultPage's "Merge another" button or
-    # by the wizard's accepted-signal hook on a clean Finish.
-    if getattr(wizard, "relaunch_after_exit", False):
-        prog, args = _relaunch_args()
-        # detachable so the new process outlives this one.
-        # Use startDetached classmethod for cross-version Qt compatibility.
-        QProcess.startDetached(prog, args, os.getcwd())
+    def show_wizard() -> None:
+        """Create, wire up, and show a fresh wizard."""
+        wizard = MergeWizard()
+        current["wizard"] = wizard
+        # ``finished`` fires on BOTH Finish (accepted) and Cancel/close
+        # (rejected). We decide what to do in on_finished by inspecting
+        # the relaunch flag, which the wizard's own accepted-hook sets
+        # only on a successful merge.
+        wizard.finished.connect(on_finished)
+        wizard.show()
 
-    return exit_code
+    def on_finished(_result: int) -> None:
+        """Called when the current wizard closes for any reason."""
+        wizard = current["wizard"]
+        relaunch = bool(getattr(wizard, "relaunch_after_exit", False))
+
+        # Let the just-finished wizard tear down cleanly. We drop our
+        # reference and ask Qt to delete it once control returns to the
+        # event loop (deleteLater is the safe way to dispose a widget
+        # from inside one of its own signal handlers).
+        if wizard is not None:
+            current["wizard"] = None
+            wizard.deleteLater()
+
+        if relaunch:
+            # Defer creating the next wizard to the next event-loop tick
+            # so the old one is fully disposed first. This is the
+            # in-process equivalent of "restart", minus the exe churn.
+            QTimer.singleShot(0, show_wizard)
+        else:
+            # Genuine exit: no relaunch requested. Now we let the app go.
+            app.quit()
+
+    show_wizard()
+    return app.exec()
 
 
 if __name__ == "__main__":

@@ -143,9 +143,10 @@ class WorkspacePage(QWizardPage):
     def __init__(self, state: WizardState) -> None:
         super().__init__()
         self.state = state
-        self.setTitle("Workspace Setup:")
+        self.setTitle("Workspace setup")
         self.setSubTitle(
-            "Tell the app where your Data folder is."
+            "Tell the app where your mod projects live. "
+            "Your settings persist between runs."
         )
 
         form = QFormLayout(self)
@@ -153,7 +154,7 @@ class WorkspacePage(QWizardPage):
         # --- Workspace directory ---
         self.workspace_edit = QLineEdit()
         self.workspace_edit.setPlaceholderText(
-            "e.g. C:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\Data"
+            "e.g. C:\\Users\\You\\Documents\\Larian Studios\\Baldur's Gate 3\\Mods"
         )
         self.workspace_edit.textChanged.connect(lambda _: self.completeChanged.emit())
         ws_browse = QPushButton("Browse…")
@@ -163,10 +164,10 @@ class WorkspacePage(QWizardPage):
         ws_row.addWidget(ws_browse)
         ws_widget = QWidget()
         ws_widget.setLayout(ws_row)
-        form.addRow("Data folder:", ws_widget)
+        form.addRow("Workspace folder:", ws_widget)
 
         ws_hint = QLabel(
-            "<i>Your Data folder should contain your project subdirectories "
+            "<i>This folder should contain your project subdirectories "
             "(each with Editor/, Mods/, Projects/, Public/ underneath). "
             "The wizard will scan it for mods you can merge.</i>"
         )
@@ -189,7 +190,7 @@ class WorkspacePage(QWizardPage):
 
         div_hint = QLabel(
             "<i>Optional. Used for LSF binary conversion in advanced merge "
-            "scenarios. https://github.com/Norbyte/lslib/releases/</i>"
+            "scenarios. You can leave this blank for now and set it later.</i>"
         )
         div_hint.setWordWrap(True)
         form.addRow("", div_hint)
@@ -1208,15 +1209,16 @@ class MergeWizard(QWizard):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("  | BG3 Mod Merger | by For_Kiramay |")
+        self.setWindowTitle("BG3 Mod Merger")
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self.resize(820, 600)
 
         # Set when a merge completes successfully and we want main() to
-        # spawn a fresh instance after this window closes. Checked by
-        # gui/__main__.py's main() loop. Default False so a normal close
-        # (no merge performed, or merge failed) just exits.
+        # show a fresh wizard (in the same process) after this one
+        # closes. Checked by gui/__main__.py's on_finished handler.
+        # Default False so a normal close (no merge performed, or merge
+        # failed) just exits the app.
         self.relaunch_after_exit: bool = False
 
         self.state = WizardState(settings=app_settings.load())
@@ -1274,12 +1276,12 @@ class MergeWizard(QWizard):
     def _on_accepted(self) -> None:
         """Fired when the user clicks Finish on the ResultPage.
 
-        We set ``relaunch_after_exit`` so ``gui/__main__.py`` spawns a
-        fresh instance after this one closes: common case is the user
-        wants to do another merge right away. Only relaunch when a
-        merge actually happened and didn't error; a Finish click after
-        a failed merge shouldn't loop the user into starting over with
-        broken state.
+        We set ``relaunch_after_exit`` so ``gui/__main__.py`` shows a
+        fresh wizard (in the same process) after this one closes: the
+        common case is the user wants to do another merge right away.
+        Only relaunch when a merge actually happened and didn't error; a
+        Finish click after a failed merge shouldn't loop the user into
+        starting over with broken state.
         """
         if (
             self.state.merge_result is not None
