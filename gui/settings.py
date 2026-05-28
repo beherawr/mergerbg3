@@ -41,6 +41,12 @@ def _user_data_dir() -> Path:
 
 SETTINGS_PATH = _user_data_dir() / "settings.json"
 
+# Bump this whenever the default window size changes in code. Saved
+# geometries stored under an older version are discarded once so the new
+# default is shown. (Currently: 1 = the 1024x760 default with min/max
+# buttons.)
+GEOMETRY_VERSION = 1
+
 
 @dataclass
 class Settings:
@@ -81,6 +87,14 @@ class Settings:
 
     # Window geometry: last position + size. Empty = use Qt defaults.
     window_geometry: str = ""
+
+    # Version marker for the saved geometry. When we change the default
+    # window size in code, we bump GEOMETRY_VERSION; if a user's saved
+    # geometry was stored under an older version, we skip restoring it
+    # ONCE so the new default takes effect, then save fresh under the new
+    # version. Without this, users who ran older builds would be stuck at
+    # the old small saved size forever, never seeing a new default.
+    geometry_version: int = 0
 
 
 def load() -> Settings:

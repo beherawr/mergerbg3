@@ -1247,9 +1247,22 @@ class MergeWizard(QWizard):
             | Qt.WindowCloseButtonHint
         )
 
+        # Even with the maximize hint set, Windows grays out the maximize
+        # button if the window reports a fixed size. QWizard defaults to
+        # sizing itself tightly around its pages, which Windows reads as
+        # "fixed". Clearing any maximum-size cap (it can creep in from
+        # page size hints) and relying on our explicit minimum below
+        # keeps the window freely resizable and maximizable.
+        # 16777215 is Qt's QWIDGETSIZE_MAX (the "no maximum" sentinel);
+        # we hardcode it because the symbol isn't importable in all
+        # PySide6 builds.
+        _QSIZE_MAX = 16777215
+        self.setMaximumSize(_QSIZE_MAX, _QSIZE_MAX)
+
         # Default launch size. Larger than the old 820x600, which felt
         # cramped (the mod lists and summaries had little room). A saved
-        # geometry from a previous run, if present, overrides this below.
+        # geometry from a previous run, if present AND from the current
+        # geometry version, overrides this below.
         self.resize(1024, 760)
         # Don't let the user shrink it down to where the wizard buttons
         # or lists get clipped.
@@ -1264,13 +1277,17 @@ class MergeWizard(QWizard):
 
         self.state = WizardState(settings=app_settings.load())
 
-        # Restore the window size/position from the last session, if we
-        # saved one. restoreGeometry overrides the resize() above, so a
-        # returning user gets exactly the size and placement they left
-        # the window at. First-run users (no saved geometry) keep the
-        # 1024x760 default.
+        # Restore the window size/position from the last session, but only
+        # if it was saved under the CURRENT geometry version. When we
+        # change the default size in code (bumping GEOMETRY_VERSION), an
+        # older saved geometry is intentionally ignored once so the new
+        # default appears; the next close re-saves under the new version.
         geom = self.state.settings.window_geometry
-        if geom:
+        geom_ok = (
+            geom
+            and self.state.settings.geometry_version == app_settings.GEOMETRY_VERSION
+        )
+        if geom_ok:
             try:
                 from PySide6.QtCore import QByteArray
                 self.restoreGeometry(QByteArray.fromBase64(geom.encode("ascii")))
@@ -1366,6 +1383,10 @@ class MergeWizard(QWizard):
             self.state.settings.window_geometry = bytes(
                 self.saveGeometry().toBase64()
             ).decode("ascii")
+            # Stamp the current version so this saved geometry is honored
+            # on the next launch (and so a future default-size change can
+            # invalidate it deliberately).
+            self.state.settings.geometry_version = app_settings.GEOMETRY_VERSION
         except Exception:
             pass
         app_settings.save(self.state.settings)

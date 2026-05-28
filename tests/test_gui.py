@@ -834,9 +834,47 @@ def test_wizard_persists_window_geometry(qapp, tmp_path, monkeypatch):
     assert saved.get("window_geometry"), (
         "window_geometry was not persisted on close"
     )
+    # The saved geometry must be stamped with the current version so the
+    # next launch honors it.
+    assert saved.get("geometry_version") == app_settings.GEOMETRY_VERSION
 
     # A new wizard should pick up and apply that saved geometry without
     # raising. (Exact restored size is screen-dependent; we assert the
     # restore path runs cleanly and the blob is consumed.)
     w2 = MergeWizard()
     assert w2.state.settings.window_geometry == saved["window_geometry"]
+
+
+def test_wizard_ignores_stale_geometry_from_older_version(qapp, tmp_path, monkeypatch):
+    """A geometry saved under an OLDER geometry_version must be ignored on
+    launch so a newly-changed default size actually appears. This is the
+    fix for 'I changed the default size but the window still opens small'
+    when a user has an old saved geometry from a previous build.
+    """
+    settings_path = tmp_path / "stale_geom.json"
+    monkeypatch.setattr(app_settings, "SETTINGS_PATH", settings_path)
+
+    # Simulate a pre-existing settings file from an older build: it has a
+    # geometry blob but an older version number.
+    stale = app_settings.Settings(
+        window_geometry="c29tZS1vbGQtYmxvYg==",  # arbitrary base64
+        geometry_version=app_settings.GEOMETRY_VERSION - 1,
+    )
+    app_settings.save(stale)
+
+    w = MergeWizard()
+    # Because the version mismatches, the stale geometry is NOT restored;
+    # the new default size applies.
+    assert w.width() >= 1024
+    assert w.height() >= 760
+
+
+def test_wizard_maximum_size_is_not_fixed(qapp):
+    """The window must not report a fixed/small maximum size, or Windows
+    grays out the maximize button. We assert the maximum is effectively
+    unbounded (Qt's QWIDGETSIZE_MAX sentinel)."""
+    w = MergeWizard()
+    # 16777215 is Qt's "no maximum" value. Anything near a real window
+    # size here would mean the maximize button gets disabled.
+    assert w.maximumWidth() >= 16777215
+    assert w.maximumHeight() >= 16777215
