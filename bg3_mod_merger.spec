@@ -47,6 +47,12 @@ a = Analysis(
         'PySide6.QtCore',
         'PySide6.QtGui',
         'PySide6.QtWidgets',
+        # Pillow's image-format plugins are imported lazily by name, so
+        # PyInstaller's static analysis can miss them. The Add-Icon
+        # feature reads PNGs and writes BC3/DXT5 DDS, so make sure both
+        # plugins are bundled.
+        'PIL.PngImagePlugin',
+        'PIL.DdsImagePlugin',
     ],
     hookspath=[],
     hooksconfig={},
@@ -77,7 +83,9 @@ a = Analysis(
         # Numerical libraries Python ships with that we don't touch.
         'numpy',
         'matplotlib',
-        'PIL',
+        # NOTE: PIL/Pillow was previously excluded to save space, but the
+        # Add-Icon feature now needs it for PNG->DDS conversion, so it
+        # must be bundled. Do NOT add 'PIL' here.
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

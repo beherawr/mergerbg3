@@ -56,13 +56,14 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QSizePolicy,
-    QSpacerItem, QTextEdit, QVBoxLayout, QWidget, QWizard, QWizardPage,
+    QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QRadioButton, QSizePolicy, QSpacerItem, QTextEdit, QVBoxLayout, QWidget,
+    QWizard, QWizardPage,
 )
 
-from core import merger, validate
+from core import merger, validate, icon_add
 from core.discover import DiscoveredProject, DiscoveryError, discover_projects
 from core.meta import generate_uuid
 from core.project import Project
@@ -298,6 +299,16 @@ class SelectionPage(QWizardPage):
         self.settings_button.setToolTip("Re-open the workspace setup page")
         self.settings_button.clicked.connect(self._open_settings)
         status_row.addWidget(self.settings_button)
+        # "Add Icon to Mod" opens a standalone dialog for generating BG3
+        # icon assets from a PNG. It's a separate task from merging, but
+        # it operates on the same discovered mod list, so this is a
+        # natural place to launch it from.
+        self.add_icon_button = QPushButton("Add Icon to Mod…")
+        self.add_icon_button.setToolTip(
+            "Generate BG3 icon assets (atlas, DDS, UV map) from a PNG"
+        )
+        self.add_icon_button.clicked.connect(self._open_add_icon)
+        status_row.addWidget(self.add_icon_button)
         self.rescan_button = QPushButton("Rescan")
         self.rescan_button.clicked.connect(self._rescan)
         status_row.addWidget(self.rescan_button)
@@ -379,6 +390,21 @@ class SelectionPage(QWizardPage):
         # one. Avoid the circular-import-style annotation.
         wizard.setStartId(MergeWizard.PAGE_WORKSPACE)
         wizard.restart()
+
+    def _open_add_icon(self) -> None:
+        """Open the standalone Add-Icon dialog, seeded with the currently
+        discovered mods. Rescans first if we have no list yet."""
+        if not self.state.discovered:
+            self._rescan()
+        if not self.state.discovered:
+            QMessageBox.information(
+                self, "No mods found",
+                "No mods were found in the workspace, so there's nothing to "
+                "add an icon to. Check your Data folder in Settings.",
+            )
+            return
+        dlg = AddIconDialog(self.state.discovered, self)
+        dlg.exec()
 
     def _rescan(self) -> None:
         ws = self.state.settings.workspace_dir
@@ -586,6 +612,188 @@ def _select_matching(list_widget: QListWidget, target: DiscoveredProject) -> Non
         if data and data.identity_key == target.identity_key:
             list_widget.setCurrentItem(item)
             return
+
+
+# ---------------------------------------------------------------------------
+# Add-Icon dialog (standalone task, launched from SelectionPage)
+# ---------------------------------------------------------------------------
+
+
+class AddIconDialog(QDialog):
+    """Generate BG3 icon assets for a mod from a source PNG.
+
+    A self-contained dialog: pick a mod, pick the icon type, name the
+    icon, choose a PNG, hit Add Icon. The heavy lifting is in
+    ``core.icon_add``; this is just the form. Adding an icon writes
+    directly into the chosen mod's Public/ tree (the same files the
+    Toolkit would produce), so no merge or wizard state is involved.
+    """
+
+    def __init__(self, discovered: list[DiscoveredProject], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Add Icon to Mod")
+        self.setMinimumWidth(560)
+        self._discovered = discovered
+        self._png_path: Path | None = None
+
+        layout = QVBoxLayout(self)
+
+        intro = QLabel(
+            "Generate the icon assets BG3 needs (DDS files at the right "
+            "sizes, plus the hotbar atlas, UV map, and TextureBank for "
+            "spell/item-type icons) from a single high-quality PNG. "
+            "Use a square PNG, ideally 380x380 or larger."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        form = QFormLayout()
+
+        # Mod picker: one flat dropdown of all discovered mods.
+        self.mod_combo = QComboBox()
+        for d in discovered:
+            self.mod_combo.addItem(d.display_label, d)
+        form.addRow("Mod:", self.mod_combo)
+
+        # Icon type.
+        self.type_combo = QComboBox()
+        for label in icon_add.ICON_TYPES:
+            self.type_combo.addItem(label)
+        self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        form.addRow("Icon type:", self.type_combo)
+
+        # Icon name.
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("e.g. MyCoolSpell (no spaces)")
+        self.name_edit.textChanged.connect(self._update_ok_enabled)
+        form.addRow("Icon name:", self.name_edit)
+
+        # PNG picker: a read-only field + Browse button.
+        png_row = QHBoxLayout()
+        self.png_edit = QLineEdit()
+        self.png_edit.setReadOnly(True)
+        self.png_edit.setPlaceholderText("Choose a .png file…")
+        png_row.addWidget(self.png_edit, 1)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse_png)
+        png_row.addWidget(browse)
+        png_widget = QWidget()
+        png_widget.setLayout(png_row)
+        form.addRow("Source PNG:", png_widget)
+
+        layout.addLayout(form)
+
+        # A per-type hint line that updates as the type changes.
+        self.type_hint = QLabel("")
+        self.type_hint.setWordWrap(True)
+        self.type_hint.setStyleSheet("font-style: italic;")
+        layout.addWidget(self.type_hint)
+        self._on_type_changed(self.type_combo.currentText())
+
+        # Buttons: Add Icon (accept) + Close.
+        self.button_box = QDialogButtonBox()
+        self.add_button = self.button_box.addButton(
+            "Add Icon", QDialogButtonBox.AcceptRole,
+        )
+        self.button_box.addButton("Close", QDialogButtonBox.RejectRole)
+        # We DON'T connect accepted->accept directly, because we want to
+        # keep the dialog open after a successful add (so the user can add
+        # several icons in a row). Handle the click ourselves.
+        self.add_button.clicked.connect(self._on_add_clicked)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        self._update_ok_enabled()
+
+    # --- helpers ---
+
+    def _on_type_changed(self, label: str) -> None:
+        spec = icon_add.ICON_TYPES.get(label)
+        if spec is None:
+            self.type_hint.setText("")
+            return
+        if spec.family is icon_add.IconFamily.ATLAS:
+            self.type_hint.setText(
+                "Atlas icon: generates tooltip (380), controller (144), and "
+                "hotbar atlas (64) DDS files, plus the UV map and "
+                "TextureBank. Reference it via a stat's Icon field."
+            )
+        elif spec.family is icon_add.IconFamily.CLASS:
+            self.type_hint.setText(
+                "Class/subclass icon: generates standard + hotbar DDS files "
+                "(and low-res copies). Name it to match your class's "
+                "internal Name."
+            )
+        else:  # CC
+            self.type_hint.setText(
+                "Character-creation icon (500x500): generates the CC DDS "
+                "and a low-res copy. Usually white-with-transparency; "
+                "backgrounds are named by GUID."
+            )
+
+    def _browse_png(self) -> None:
+        start_dir = ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a PNG icon", start_dir, "PNG images (*.png)",
+        )
+        if path:
+            self._png_path = Path(path)
+            self.png_edit.setText(path)
+            self._update_ok_enabled()
+
+    def _update_ok_enabled(self) -> None:
+        ok = bool(self.name_edit.text().strip()) and self._png_path is not None
+        self.add_button.setEnabled(ok)
+
+    def _on_add_clicked(self) -> None:
+        d: DiscoveredProject = self.mod_combo.currentData()
+        if d is None:
+            return
+        icon_type = self.type_combo.currentText()
+        icon_name = self.name_edit.text().strip()
+        if self._png_path is None:
+            return
+
+        try:
+            result = icon_add.add_icon(
+                data_root=d.data_root,
+                mod_folder=d.mod_folder_name,
+                icon_name=icon_name,
+                icon_type=icon_type,
+                png_path=self._png_path,
+            )
+        except icon_add.IconAddError as e:
+            QMessageBox.warning(self, "Couldn't add icon", str(e))
+            return
+        except Exception as e:  # defensive: never crash the dialog
+            QMessageBox.critical(
+                self, "Unexpected error",
+                f"Something went wrong adding the icon:\n\n{e}",
+            )
+            return
+
+        # Build a friendly summary.
+        written = len(result.files_written)
+        updated = len(result.files_updated)
+        parts = [
+            f"Added icon '{result.icon_name}' to {d.mod_name}.",
+            f"{written} file(s) written"
+            + (f", {updated} updated." if updated else "."),
+        ]
+        if result.reference_hint:
+            parts.append("")
+            parts.append(result.reference_hint)
+        if result.notes:
+            parts.append("")
+            parts.extend(f"Note: {n}" for n in result.notes)
+        QMessageBox.information(self, "Icon added", "\n".join(parts))
+
+        # Keep the dialog open for another icon, but clear the name + PNG
+        # so the user doesn't accidentally double-add the same one.
+        self.name_edit.clear()
+        self._png_path = None
+        self.png_edit.clear()
+        self._update_ok_enabled()
 
 
 # ---------------------------------------------------------------------------

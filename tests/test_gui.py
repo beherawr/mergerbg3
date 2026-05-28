@@ -24,6 +24,7 @@ from core.discover import DiscoveredProject
 from core.project import Project
 from gui import settings as app_settings
 from gui.wizard import (
+    AddIconDialog,
     IdentityPage, MergeWizard, PolicyPage, ResultPage, ReviewPage, SelectionPage,
     WizardState, WorkspacePage, _default_folder, _default_author,
 )
@@ -878,3 +879,81 @@ def test_wizard_maximum_size_is_not_fixed(qapp):
     # size here would mean the maximize button gets disabled.
     assert w.maximumWidth() >= 16777215
     assert w.maximumHeight() >= 16777215
+
+
+# --- Add-Icon dialog --------------------------------------------------------
+
+
+def _fake_discovered(data_root, folder="ModA", name="Mod A"):
+    from core.discover import DiscoveredProject
+    return DiscoveredProject(
+        data_root=data_root, mod_folder_name=folder,
+        mod_name=name, mod_uuid="u1", author="Me", description="",
+    )
+
+
+def test_add_icon_dialog_lists_mods_and_types(qapp, tmp_path):
+    mods = [_fake_discovered(tmp_path / "ws", "ModA", "Mod A"),
+            _fake_discovered(tmp_path / "ws", "ModB", "Mod B")]
+    dlg = AddIconDialog(mods)
+    assert dlg.mod_combo.count() == 2
+    # All icon types from the core module are offered.
+    from core import icon_add
+    assert dlg.type_combo.count() == len(icon_add.ICON_TYPES)
+
+
+def test_add_icon_dialog_add_disabled_until_name_and_png(qapp, tmp_path):
+    mods = [_fake_discovered(tmp_path / "ws")]
+    dlg = AddIconDialog(mods)
+    assert not dlg.add_button.isEnabled()
+    dlg.name_edit.setText("MyIcon")
+    assert not dlg.add_button.isEnabled()  # still no PNG
+    # Simulate choosing a PNG.
+    png = tmp_path / "icon.png"
+    from PIL import Image
+    Image.new("RGBA", (256, 256), (1, 2, 3, 255)).save(png)
+    dlg._png_path = png
+    dlg._update_ok_enabled()
+    assert dlg.add_button.isEnabled()
+
+
+def test_add_icon_dialog_generates_assets_on_add(qapp, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from PIL import Image
+
+    # Silence modal dialogs so the test runs headlessly.
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+
+    data_root = tmp_path / "ws"
+    (data_root / "Public" / "ModA").mkdir(parents=True)
+    png = tmp_path / "icon.png"
+    Image.new("RGBA", (512, 512), (200, 100, 40, 255)).save(png)
+
+    dlg = AddIconDialog([_fake_discovered(data_root, "ModA", "Mod A")])
+    dlg.type_combo.setCurrentText("Spell / Skill")
+    dlg.name_edit.setText("DialogSpell")
+    dlg._png_path = png
+    dlg.png_edit.setText(str(png))
+    dlg._update_ok_enabled()
+    dlg._on_add_clicked()
+
+    atlas = data_root / "Public" / "ModA" / "Assets" / "Textures" / "Icons" / "Icons_ModA.dds"
+    assert atlas.exists()
+    # Form is cleared so the user can add another without double-adding.
+    assert dlg.name_edit.text() == ""
+    assert dlg._png_path is None
+
+
+def test_add_icon_dialog_type_hint_changes_per_family(qapp, tmp_path):
+    dlg = AddIconDialog([_fake_discovered(tmp_path / "ws")])
+    dlg.type_combo.setCurrentText("Spell / Skill")
+    atlas_hint = dlg.type_hint.text()
+    dlg.type_combo.setCurrentText("Class / Subclass")
+    class_hint = dlg.type_hint.text()
+    dlg.type_combo.setCurrentText("Race")
+    cc_hint = dlg.type_hint.text()
+    # Each family produces a distinct hint.
+    assert atlas_hint != class_hint != cc_hint
+    assert "atlas" in atlas_hint.lower()
+    assert "class" in class_hint.lower()

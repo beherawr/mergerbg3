@@ -5,6 +5,9 @@
 # Runtime deps
 PySide6>=6.6
 lxml>=4.9
+# Pillow: used by the Add-Icon feature to convert PNG to BC3/DXT5 DDS at
+# the sizes BG3 needs. 12.0+ has the DDS DXT5 encoder we rely on.
+Pillow>=12.0
 
 # Build
 pyinstaller>=6.0
