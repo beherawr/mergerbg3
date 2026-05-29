@@ -926,7 +926,9 @@ def test_add_icon_dialog_generates_assets_on_add(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
 
     data_root = tmp_path / "ws"
+    # The new layout writes to BOTH Mods/<Mod> and Public/<Mod>.
     (data_root / "Public" / "ModA").mkdir(parents=True)
+    (data_root / "Mods" / "ModA").mkdir(parents=True)
     png = tmp_path / "icon.png"
     Image.new("RGBA", (512, 512), (200, 100, 40, 255)).save(png)
 
@@ -938,22 +940,49 @@ def test_add_icon_dialog_generates_assets_on_add(qapp, tmp_path, monkeypatch):
     dlg._update_ok_enabled()
     dlg._on_add_clicked()
 
-    atlas = data_root / "Public" / "ModA" / "Assets" / "Textures" / "Icons" / "Icons_ModA.dds"
+    # Atlas is at Public, named newAtlas.dds (toolkit default convention).
+    atlas = data_root / "Public" / "ModA" / "Assets" / "Textures" / "Icons" / "newAtlas.dds"
     assert atlas.exists()
+    # Tooltip is at Mods/.../GUI/Assets/...
+    tooltip = data_root / "Mods" / "ModA" / "GUI" / "Assets" / "Tooltips" / "Icons" / "DialogSpell.DDS"
+    assert tooltip.exists()
+    # metadata.lsf was written.
+    meta = data_root / "Mods" / "ModA" / "GUI" / "metadata.lsf.lsx"
+    assert meta.exists()
     # Form is cleared so the user can add another without double-adding.
     assert dlg.name_edit.text() == ""
     assert dlg._png_path is None
 
 
 def test_add_icon_dialog_type_hint_changes_per_family(qapp, tmp_path):
+    """Each family produces a distinct hint."""
     dlg = AddIconDialog([_fake_discovered(tmp_path / "ws")])
     dlg.type_combo.setCurrentText("Spell / Skill")
     atlas_hint = dlg.type_hint.text()
     dlg.type_combo.setCurrentText("Class / Subclass")
     class_hint = dlg.type_hint.text()
-    dlg.type_combo.setCurrentText("Race")
-    cc_hint = dlg.type_hint.text()
-    # Each family produces a distinct hint.
-    assert atlas_hint != class_hint != cc_hint
+    dlg.type_combo.setCurrentText("Action Resource")
+    ar_hint = dlg.type_hint.text()
+    dlg.type_combo.setCurrentText("Portrait")
+    portrait_hint = dlg.type_hint.text()
+    # All four are distinct.
+    assert len({atlas_hint, class_hint, ar_hint, portrait_hint}) == 4
     assert "atlas" in atlas_hint.lower()
     assert "class" in class_hint.lower()
+    assert "action resource" in ar_hint.lower()
+    assert "portrait" in portrait_hint.lower()
+
+
+def test_add_icon_dialog_offers_portrait_with_distinct_hint(qapp, tmp_path):
+    """Portrait is a selectable type. The hint should cover both use
+    cases (own-mod portrait with any clean name; base-game NPC override
+    with the exact GUID-prefixed filename) and mention the metadata
+    registration."""
+    dlg = AddIconDialog([_fake_discovered(tmp_path / "ws")])
+    labels = [dlg.type_combo.itemText(i) for i in range(dlg.type_combo.count())]
+    assert "Portrait" in labels
+    dlg.type_combo.setCurrentText("Portrait")
+    hint = dlg.type_hint.text().lower()
+    assert "152" in hint
+    assert "metadata" in hint
+    assert "override" in hint

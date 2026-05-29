@@ -138,12 +138,27 @@ ICON_TYPES: dict[str, IconTypeSpec] = {
 TOOLTIP_PX = 380
 CONTROLLER_PX = 144
 
-# Hotbar atlas geometry: 2048x2048 of 64x64 cells = 32x32 grid = 1024 slots.
-ATLAS_PX = 2048
+# Hotbar atlas geometry: matches what nightb and mysticw ship — 512x512
+# DDS organized as an 8x8 grid of 64x64 cells (64 slots per atlas). When
+# a mod needs more than 64 hotbar-atlas icons, the tool auto-overflows
+# into a second atlas (newAtlas_2.dds + Icons_<mod>_2.lsx), and so on.
+ATLAS_PX = 512
 ICON_PX = 64
-GRID = ATLAS_PX // ICON_PX
-SLOTS = GRID * GRID
-UV_STEP = ICON_PX / ATLAS_PX  # 0.03125
+GRID = ATLAS_PX // ICON_PX    # 8 columns and rows
+SLOTS = GRID * GRID           # 64 slots per atlas
+UV_STEP = ICON_PX / ATLAS_PX  # 0.125 — UV span of one tile
+
+# Half-pixel inset on each UV side. Prevents adjacent tiles from
+# bleeding into each other when the engine samples at smaller mip
+# levels. Both nightb (NB438_Atlas.lsx) and mysticw
+# (ArcaneVanguardAtlas.lsx) use this exact value of 0.5/512.
+UV_INSET = 0.5 / ATLAS_PX     # 0.0009765625
+
+# Atlas DDS filename. The BG3 Toolkit defaults a freshly-created atlas
+# to 'newAtlas.dds', and both reference mods kept that name. We follow
+# the convention instead of coining our own. Overflow atlases get a
+# numeric suffix: newAtlas_2.dds, newAtlas_3.dds, etc.
+ATLAS_DDS_BASENAME = "newAtlas"
 
 # CLASS family: cross-checked against nightb (third-party class mod):
 #   - Standard class icon: 300x300 (Assets) → 152x152 (AssetsLowRes)
@@ -494,11 +509,25 @@ def _register_in_metadata(
     out_path, wrote_binary = _write_metadata(doc, data_root, mod_folder, divine_path)
     (result.files_updated if existing_source is not None else result.files_written).append(out_path)
     if not wrote_binary:
-        result.notes.append(
-            "GUI/metadata.lsf.lsx written as text fallback (divine.exe "
-            "not configured). The BG3 multitool will convert it at pack "
-            "time. To get the binary directly, set divine.exe in Settings."
-        )
+        # Distinguish "user never configured divine" from "user configured
+        # divine but the path doesn't resolve" — the second case has hit
+        # users who got an unhelpful "not configured" message even though
+        # they had set a path in Settings.
+        if divine_path:
+            result.notes.append(
+                f"GUI/metadata.lsf.lsx written as text fallback. The "
+                f"divine.exe path in Settings ({divine_path!r}) doesn't "
+                f"resolve to an existing file - check for typos, surrounding "
+                f"quotes (from Windows 'Copy as path'), or that the file "
+                f"hasn't been moved. The BG3 multitool will still convert "
+                f"the text form at pack time."
+            )
+        else:
+            result.notes.append(
+                "GUI/metadata.lsf.lsx written as text fallback (divine.exe "
+                "not configured). The BG3 multitool will convert it at pack "
+                "time. To get the binary directly, set divine.exe in Settings."
+            )
 
 
 def _gui_relative_png(asset_root: str, parts: list[str], icon_name: str) -> str:
@@ -512,40 +541,67 @@ def _gui_relative_png(asset_root: str, parts: list[str], icon_name: str) -> str:
 # ===========================================================================
 
 
-def _atlas_dds_path(data_root: Path, mod_folder: str) -> Path:
-    """The 64-cell sheet itself - stays under Public/."""
+def _atlas_dds_path(data_root: Path, mod_folder: str, atlas_index: int = 1) -> Path:
+    """The atlas DDS sheet. First atlas is the toolkit-default
+    'newAtlas.dds'; overflow atlases get a numeric suffix
+    ('newAtlas_2.dds', 'newAtlas_3.dds', ...). Lowercase '.dds' matches
+    what real third-party mods ship."""
+    name = (ATLAS_DDS_BASENAME if atlas_index == 1
+            else f"{ATLAS_DDS_BASENAME}_{atlas_index}")
     return (data_root / "Public" / mod_folder / "Assets" / "Textures"
-            / "Icons" / f"Icons_{mod_folder}.DDS")
+            / "Icons" / f"{name}.dds")
 
 
-def _atlas_uv_lsx_path(data_root: Path, mod_folder: str) -> Path:
-    """Full UV map (TextureAtlasInfo + IconUVList) - Public side, .lsx form
-    the toolkit reads."""
-    return data_root / "Public" / mod_folder / "GUI" / f"Icons_{mod_folder}.lsx"
+def _atlas_uv_lsx_path(data_root: Path, mod_folder: str, atlas_index: int = 1) -> Path:
+    """The Public-side atlas LSX (TextureAtlasInfo + IconUVList).
+    Real mods use author-named LSX files (e.g. 'NB438_Atlas.lsx');
+    we use a deterministic 'Icons_<mod>.lsx' so the tool can find its
+    own files on subsequent adds. Overflow numbering matches the DDS:
+    Icons_<mod>_2.lsx alongside newAtlas_2.dds."""
+    name = (f"Icons_{mod_folder}" if atlas_index == 1
+            else f"Icons_{mod_folder}_{atlas_index}")
+    return data_root / "Public" / mod_folder / "GUI" / f"{name}.lsx"
 
 
-def _atlas_uv_lsf_path(data_root: Path, mod_folder: str) -> Path:
-    """Simpler UV map (just IconUVList) - Mods side, .lsf/.lsf.lsx form
-    the game reads."""
-    return data_root / "Mods" / mod_folder / "GUI" / f"Icons_{mod_folder}.lsf"
-
-
-def _texturebank_lsx_path(data_root: Path, mod_folder: str) -> Path:
-    """TextureBank entry that registers the atlas - Public side."""
-    return (data_root / "Public" / mod_folder / "Content" / "UI"
-            / "[PAK]_UI" / "_merged.lsf.lsx")
+def _atlas_uv_lsf_path(data_root: Path, mod_folder: str, atlas_index: int = 1) -> Path:
+    """Binary LSF form of the Public-side atlas LSX, written alongside
+    it via divine. The game's runtime reads the binary form; the
+    toolkit can read either, but real mods ship both so the engine has
+    the binary at load time."""
+    return _atlas_uv_lsx_path(data_root, mod_folder, atlas_index).with_suffix(".lsf")
 
 
 def _slot_to_pixel(slot: int) -> tuple[int, int]:
+    """Slot index → top-left pixel of that tile within the atlas DDS."""
     row, col = divmod(slot, GRID)
     return col * ICON_PX, row * ICON_PX
 
 
 def _slot_to_uv(slot: int) -> tuple[float, float, float, float]:
+    """Slot index → (U1, V1, U2, V2) with the half-pixel inset that
+    real third-party mods use.
+
+    Without an inset, sampling at smaller mip levels can pick up pixels
+    from the neighbouring tile and produce visible seams. Both nightb
+    and mysticw inset by exactly half a pixel (0.5/512 = 0.0009765625).
+    Example: slot 0 → (0.0009765625, 0.0009765625, 0.12402344, 0.12402344).
+    """
     row, col = divmod(slot, GRID)
-    u1 = col * UV_STEP
-    v1 = row * UV_STEP
-    return u1, v1, u1 + UV_STEP, v1 + UV_STEP
+    u1 = col * UV_STEP + UV_INSET
+    v1 = row * UV_STEP + UV_INSET
+    u2 = (col + 1) * UV_STEP - UV_INSET
+    v2 = (row + 1) * UV_STEP - UV_INSET
+    return u1, v1, u2, v2
+
+
+def _uv_to_slot(u1: float, v1: float) -> int | None:
+    """Decode the slot index back from a (U1, V1) pair, accounting for
+    the half-pixel inset. Returns None if values fall outside the grid."""
+    col = round((u1 - UV_INSET) / UV_STEP)
+    row = round((v1 - UV_INSET) / UV_STEP)
+    if not (0 <= col < GRID and 0 <= row < GRID):
+        return None
+    return row * GRID + col
 
 
 def _build_uv_node(icon_name: str, slot: int) -> lsx.Node:
@@ -562,75 +618,52 @@ def _build_uv_node(icon_name: str, slot: int) -> lsx.Node:
     )
 
 
-def _new_full_uv_lsx(mod_folder: str, atlas_uuid: str) -> lsx.LsxDocument:
-    """The Public-side Simple_Icons.lsx (full atlas-info + UV list)."""
+def _new_full_uv_lsx(atlas_dds_relative: str, atlas_uuid: str) -> lsx.LsxDocument:
+    """Build a Public-side atlas LSX matching what nightb and mysticw ship.
+
+    Cross-checked against both reference mods. Critical schema details
+    that differ from the lslib defaults we used to emit:
+
+      - Region order: IconUVList FIRST, TextureAtlasInfo SECOND. We
+        used to emit them the other way around.
+      - ``Path`` attribute uses ``type="string"``, not ``"LSString"``.
+        The toolkit accepts string and renders the atlas; LSString made
+        the path unreadable.
+      - ``Height`` and ``Width`` use ``type="int32"``, not ``"int64"``.
+      - ``Path`` value is RELATIVE to the mod root, e.g. just
+        ``Assets/Textures/Icons/newAtlas.dds``. We used to emit the full
+        ``Public/<mod>/Assets/...`` form, which the toolkit can't
+        resolve to a file.
+      - Header is ``major="4" minor="8" revision="0" build="400"``, no
+        ``lslib_meta`` attribute. Our old header was the lslib default
+        and the toolkit may have been silently rejecting it.
+
+    `atlas_dds_relative` should already be the mod-relative path
+    (`Assets/Textures/Icons/newAtlas.dds`) — see _add_atlas_icon.
+    """
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <save>
-    <version major="4" minor="0" revision="6" build="5" />
-    <region id="TextureAtlasInfo">
-        <node id="root">
-            <children>
-                <node id="TextureAtlasIconSize">
-                    <attribute id="Height" type="int64" value="{ICON_PX}"/>
-                    <attribute id="Width" type="int64" value="{ICON_PX}"/>
-                </node>
-                <node id="TextureAtlasPath">
-                    <attribute id="Path" type="LSString" value="Public/{mod_folder}/Assets/Textures/Icons/Icons_{mod_folder}.DDS"/>
-                    <attribute id="UUID" type="FixedString" value="{atlas_uuid}"/>
-                </node>
-                <node id="TextureAtlasTextureSize">
-                    <attribute id="Height" type="int64" value="{ATLAS_PX}"/>
-                    <attribute id="Width" type="int64" value="{ATLAS_PX}"/>
-                </node>
-            </children>
-        </node>
-    </region>
+    <version major="4" minor="8" revision="0" build="400"/>
     <region id="IconUVList">
         <node id="root">
             <children>
             </children>
         </node>
     </region>
-</save>
-"""
-    return lsx.parse_bytes(xml.encode("utf-8"))
-
-
-def _new_short_uv_lsx() -> lsx.LsxDocument:
-    """The Mods-side Simple_Icons.lsf.lsx (just an IconUV list under
-    `region id='root'`). Matches the simpler shape the game reads."""
-    xml = """<?xml version="1.0" encoding="utf-8"?>
-<save>
-    <version major="4" minor="0" revision="6" build="5" lslib_meta="v1,bswap_guids" />
-    <region id="root">
+    <region id="TextureAtlasInfo">
         <node id="root">
             <children>
-            </children>
-        </node>
-    </region>
-</save>
-"""
-    return lsx.parse_bytes(xml.encode("utf-8"))
-
-
-def _new_texturebank_lsx(mod_folder: str, atlas_uuid: str) -> lsx.LsxDocument:
-    source = f"Public/{mod_folder}/Assets/Textures/Icons/Icons_{mod_folder}.DDS"
-    xml = f"""<?xml version="1.0" encoding="utf-8"?>
-<save>
-    <version major="4" minor="0" revision="6" build="5" lslib_meta="v1,bswap_guids" />
-    <region id="TextureBank">
-        <node id="TextureBank">
-            <children>
-                <node id="Resource">
-                    <attribute id="ID" type="FixedString" value="{atlas_uuid}" />
-                    <attribute id="Localized" type="bool" value="False" />
-                    <attribute id="Name" type="LSString" value="Icons_{mod_folder}" />
-                    <attribute id="SRGB" type="bool" value="True" />
-                    <attribute id="SourceFile" type="LSString" value="{source}" />
-                    <attribute id="Streaming" type="bool" value="True" />
-                    <attribute id="Template" type="FixedString" value="Icons_Items" />
-                    <attribute id="Type" type="int64" value="0" />
-                    <attribute id="_OriginalFileVersion_" type="int64" value="144115188075855912" />
+                <node id="TextureAtlasIconSize">
+                    <attribute id="Height" type="int32" value="{ICON_PX}"/>
+                    <attribute id="Width" type="int32" value="{ICON_PX}"/>
+                </node>
+                <node id="TextureAtlasPath">
+                    <attribute id="Path" type="string" value="{atlas_dds_relative}"/>
+                    <attribute id="UUID" type="FixedString" value="{atlas_uuid}"/>
+                </node>
+                <node id="TextureAtlasTextureSize">
+                    <attribute id="Height" type="int32" value="{ATLAS_PX}"/>
+                    <attribute id="Width" type="int32" value="{ATLAS_PX}"/>
                 </node>
             </children>
         </node>
@@ -674,12 +707,10 @@ def _read_existing_full_uv(uv_path: Path) -> tuple[lsx.LsxDocument | None, dict[
             if u1 is None or v1 is None:
                 continue
             try:
-                col = round(float(u1) / UV_STEP)
-                row = round(float(v1) / UV_STEP)
+                slot = _uv_to_slot(float(u1), float(v1))
             except ValueError:
                 continue
-            if 0 <= row < GRID and 0 <= col < GRID:
-                slot = row * GRID + col
+            if slot is not None:
                 used.add(slot)
                 if key:
                     name_to_slot[key] = slot
@@ -721,77 +752,74 @@ def _load_or_create_atlas(atlas_path: Path) -> Image.Image:
     return Image.new("RGBA", (ATLAS_PX, ATLAS_PX), (0, 0, 0, 0))
 
 
-def _write_short_uv_lsf(
-    data_root: Path, mod_folder: str, icon_name: str, slot: int,
+def _find_atlas_for_icon(
+    data_root: Path, mod_folder: str, icon_name: str,
+) -> tuple[int, int, lsx.LsxDocument | None, str | None]:
+    """Pick which atlas to add this icon to. Walks existing atlases in
+    order and stops at the first one that either already has the icon
+    name (re-add → reuse slot) or has a free slot. If all existing
+    atlases are full, returns the next index for a fresh atlas.
+
+    Returns: (atlas_index, slot, existing_doc_or_None, atlas_uuid_or_None).
+      - atlas_index: 1-based atlas number to write to
+      - slot: chosen slot (0-63)
+      - existing_doc: None when a new atlas needs to be created
+      - atlas_uuid: pre-existing UUID if the atlas is being reused
+    """
+    atlas_index = 1
+    while True:
+        uv_path = _atlas_uv_lsx_path(data_root, mod_folder, atlas_index)
+        if not uv_path.exists():
+            return atlas_index, 0, None, None
+        doc, name_to_slot, used, atlas_uuid = _read_existing_full_uv(uv_path)
+        if icon_name in name_to_slot:
+            return atlas_index, name_to_slot[icon_name], doc, atlas_uuid
+        if len(used) < SLOTS:
+            return atlas_index, _next_free_slot(used), doc, atlas_uuid
+        atlas_index += 1
+
+
+def _write_atlas_uv_files(
+    uv_doc: lsx.LsxDocument, lsx_path: Path, lsf_path: Path,
     divine_path: str | None, result: IconAddResult,
 ) -> None:
-    """Maintain Mods/<Mod>/GUI/Simple_Icons.lsf (binary, via divine) or
-    .lsf.lsx fallback. The Mods-side form is the simpler `region id='root'`
-    layout the game reads at runtime."""
-    lsf_path = _atlas_uv_lsf_path(data_root, mod_folder)
-    lsx_fallback = lsf_path.with_suffix(".lsf.lsx")  # Mods/.../Simple_Icons.lsf.lsx
+    """Write the Public-side atlas UV map: LSX text always, plus the
+    binary LSF alongside it when divine.exe is configured.
 
-    # Read existing if present.
-    doc: lsx.LsxDocument | None = None
-    if lsx_fallback.exists():
-        doc = lsx.parse_file(lsx_fallback)
-    else:
-        try:
-            divine_exe = divine_mod.find_divine(divine_path)
-        except divine_mod.DivineNotFoundError:
-            divine_exe = None
-        if lsf_path.exists() and divine_exe is not None:
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".lsx", delete=False) as tmp:
-                tmp_path = Path(tmp.name)
-            try:
-                d = divine_mod.Divine(exe_path=divine_exe)
-                d.lsf_to_lsx(lsf_path, tmp_path)
-                doc = lsx.parse_file(tmp_path)
-            finally:
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
-    if doc is None:
-        doc = _new_short_uv_lsx()
+    Both nightb and mysticw ship both forms in Public/<mod>/GUI/. The
+    toolkit reads the LSX to show your icon in its picker; the game's
+    runtime reads the LSF binary to render the icon in-game. Shipping
+    only the LSX (which is what the old code did) is why the toolkit
+    showed the name but couldn't render the texture.
+    """
+    lsx_existed = lsx_path.exists()
+    lsf_existed = lsf_path.exists()
 
-    # Append the entry (the short form's region is named "root", not "IconUVList").
-    _append_uv_node_in_region(doc, "root", icon_name, slot)
+    _ensure_parent(lsx_path)
+    lsx.write_file(uv_doc, lsx_path)
+    (result.files_updated if lsx_existed else result.files_written).append(lsx_path)
 
-    # Write back.
     try:
         divine_exe = divine_mod.find_divine(divine_path)
     except divine_mod.DivineNotFoundError:
-        divine_exe = None
+        result.notes.append(
+            f"Atlas LSX written ({lsx_path.name}) but the binary "
+            f"{lsf_path.name} was NOT written because divine.exe isn't "
+            f"configured. The BG3 Toolkit will probably show the icon "
+            f"name without rendering its texture until the LSF exists. "
+            f"Set divine.exe in Settings and re-add the icon."
+        )
+        return
 
-    if divine_exe is not None:
-        import tempfile
-        _ensure_parent(lsf_path)
-        with tempfile.NamedTemporaryFile(suffix=".lsx", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            lsx.write_file(doc, tmp_path)
-            d = divine_mod.Divine(exe_path=divine_exe)
-            d.lsx_to_lsf(tmp_path, lsf_path)
-        except divine_mod.DivineError as e:
-            raise IconAddError(f"divine.exe failed converting Simple_Icons to .lsf: {e}") from e
-        finally:
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
-        # Clean up any stale text fallback.
-        try:
-            if lsx_fallback.exists():
-                lsx_fallback.unlink()
-        except OSError:
-            pass
-        (result.files_updated if lsf_path.exists() else result.files_written).append(lsf_path)
-    else:
-        _ensure_parent(lsx_fallback)
-        lsx.write_file(doc, lsx_fallback)
-        (result.files_updated if lsx_fallback.exists() else result.files_written).append(lsx_fallback)
+    try:
+        d = divine_mod.Divine(exe_path=divine_exe)
+        d.lsx_to_lsf(lsx_path, lsf_path)
+    except divine_mod.DivineError as e:
+        raise IconAddError(
+            f"divine.exe failed converting atlas LSX to LSF: {e}"
+        ) from e
+
+    (result.files_updated if lsf_existed else result.files_written).append(lsf_path)
 
 
 def _add_atlas_icon(
@@ -849,68 +877,67 @@ def _add_atlas_icon(
         (_gui_relative_png("Assets", ["ControllerUIIcons", spec.controller_subfolder], icon_name), CONTROLLER_PX, CONTROLLER_PX)
     )
 
-    # --- 3. Hotbar atlas (64): Public/<Mod>/Assets/Textures/Icons/Icons_<Mod>.DDS ---
-    atlas_path = _atlas_dds_path(data_root, mod_folder)
-    full_uv_path = _atlas_uv_lsx_path(data_root, mod_folder)
-    tb_path = _texturebank_lsx_path(data_root, mod_folder)
-    result.atlas_path = atlas_path
-
-    atlas_existed = atlas_path.exists()
-    uv_doc, name_to_slot, used_slots, atlas_uuid = _read_existing_full_uv(full_uv_path)
-
-    if icon_name in name_to_slot:
-        slot = name_to_slot[icon_name]
-        result.notes.append(
-            f"Icon {icon_name!r} already in the atlas; updating in place (slot {slot})."
-        )
-    else:
-        slot = _next_free_slot(used_slots)
+    # --- 3. Hotbar atlas (64-slot sheet, overflow when full). ---
+    # Walk existing atlases for the right place to put this icon.
+    atlas_index, slot, uv_doc, atlas_uuid = _find_atlas_for_icon(
+        data_root, mod_folder, icon_name,
+    )
+    atlas_dds_path = _atlas_dds_path(data_root, mod_folder, atlas_index)
+    atlas_lsx_path = _atlas_uv_lsx_path(data_root, mod_folder, atlas_index)
+    atlas_lsf_path = _atlas_uv_lsf_path(data_root, mod_folder, atlas_index)
+    result.atlas_path = atlas_dds_path
     result.slot_index = slot
+
+    # Detect the "already present" case for the user-facing note. We can
+    # tell from uv_doc + a key lookup; _find_atlas_for_icon's contract
+    # is that it returns the existing slot for known names.
+    if uv_doc is not None:
+        existing_keys = set()
+        region = uv_doc.region("IconUVList")
+        if region is not None:
+            existing_keys = {
+                c.attr_value("MapKey") for c in region.root_node.children
+                if c.id == "IconUV"
+            }
+        if icon_name in existing_keys:
+            result.notes.append(
+                f"Icon {icon_name!r} already in atlas {atlas_index}; "
+                f"updating in place (slot {slot})."
+            )
 
     if not atlas_uuid:
         atlas_uuid = str(uuid_mod.uuid4())
 
-    atlas_img = _load_or_create_atlas(atlas_path)
+    # --- 3a. Atlas DDS: load (or create) and paste the 64x64 tile. ---
+    atlas_existed = atlas_dds_path.exists()
+    atlas_img = _load_or_create_atlas(atlas_dds_path)
     icon64 = src.resize((ICON_PX, ICON_PX), Image.LANCZOS)
     px, py = _slot_to_pixel(slot)
     # Clear the cell first so re-adds don't blend with old pixels.
     atlas_img.paste((0, 0, 0, 0), (px, py, px + ICON_PX, py + ICON_PX))
     atlas_img.paste(icon64, (px, py), icon64)
-    _ensure_parent(atlas_path)
+    _ensure_parent(atlas_dds_path)
     try:
         atlas_img.save(
-            str(io_util.to_long_path(atlas_path)),
+            str(io_util.to_long_path(atlas_dds_path)),
             format="DDS", pixel_format="DXT5",
         )
     except Exception as e:
         raise IconAddError(f"Failed to write atlas DDS: {e}") from e
-    (result.files_updated if atlas_existed else result.files_written).append(atlas_path)
+    (result.files_updated if atlas_existed else result.files_written).append(atlas_dds_path)
 
-    # --- 4. Full UV map (Public side, .lsx) ---
-    uv_existed = full_uv_path.exists()
+    # --- 3b. Atlas UV map: LSX + LSF binary, both Public side. ---
+    # The LSX Path attribute is relative to the mod root (just
+    # 'Assets/Textures/Icons/newAtlas.dds'), not the full
+    # 'Public/<mod>/Assets/...' path. That's what nightb and mysticw
+    # ship, and what the toolkit can resolve.
     if uv_doc is None:
-        uv_doc = _new_full_uv_lsx(mod_folder, atlas_uuid)
+        relative_dds = f"Assets/Textures/Icons/{atlas_dds_path.name}"
+        uv_doc = _new_full_uv_lsx(relative_dds, atlas_uuid)
     _append_uv_node_in_region(uv_doc, "IconUVList", icon_name, slot)
-    _ensure_parent(full_uv_path)
-    lsx.write_file(uv_doc, full_uv_path)
-    (result.files_updated if uv_existed else result.files_written).append(full_uv_path)
+    _write_atlas_uv_files(uv_doc, atlas_lsx_path, atlas_lsf_path, divine_path, result)
 
-    # --- 5. Short UV map (Mods side, .lsf or .lsf.lsx) ---
-    _write_short_uv_lsf(data_root, mod_folder, icon_name, slot, divine_path, result)
-
-    # --- 6. TextureBank entry (Public side, .lsf.lsx) ---
-    if not tb_path.exists():
-        tb_doc = _new_texturebank_lsx(mod_folder, atlas_uuid)
-        _ensure_parent(tb_path)
-        lsx.write_file(tb_doc, tb_path)
-        result.files_written.append(tb_path)
-    else:
-        result.notes.append(
-            "TextureBank _merged.lsf.lsx already exists; left unchanged "
-            "(assumed to already register this atlas)."
-        )
-
-    # --- 7. Register all the Mods/-side files in metadata.lsf ---
+    # --- 4. Register all the Mods/-side files in metadata.lsf ---
     _register_in_metadata(data_root, mod_folder, metadata_entries, divine_path, result)
 
     result.reference_hint = (

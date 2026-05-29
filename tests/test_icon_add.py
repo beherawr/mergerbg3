@@ -184,7 +184,11 @@ class TestAtlasFamily:
         assert not (data_root / "Mods" / "TestMod" / "GUI" / "Assets"
                     / "Tooltips" / "ItemIcons" / "MySpell.DDS").exists()
 
-    def test_atlas_dds_at_public_path_uppercase(self, tmp_path):
+    def test_atlas_dds_is_512_with_lowercase_extension(self, tmp_path):
+        """Cross-checked against nightb (newAtlas.dds) and mysticw
+        (newAtlas.dds + named atlases): atlas DDS is 512x512 with a
+        lowercase '.dds' extension, named per the toolkit's default
+        of 'newAtlas.dds' (not 'Icons_<mod>.DDS' like we used to emit)."""
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 400)
         icon_add.add_icon(
@@ -192,10 +196,19 @@ class TestAtlasFamily:
             icon_name="MySpell", icon_type="Spell / Skill", png_path=png,
         )
         atlas = (data_root / "Public" / "TestMod" / "Assets" / "Textures"
-                 / "Icons" / "Icons_TestMod.DDS")
-        assert atlas.exists() and Image.open(atlas).size == (2048, 2048)
+                 / "Icons" / "newAtlas.dds")
+        assert atlas.exists() and Image.open(atlas).size == (512, 512)
+        # Old path should not exist.
+        old = (data_root / "Public" / "TestMod" / "Assets" / "Textures"
+               / "Icons" / "Icons_TestMod.DDS")
+        assert not old.exists()
 
-    def test_first_atlas_slot_uv_coords(self, tmp_path):
+    def test_first_atlas_slot_uv_coords_have_half_pixel_inset(self, tmp_path):
+        """Cross-checked against nightb (NB438_Atlas.lsx) and mysticw
+        (ArcaneVanguardAtlas.lsx): UV coordinates use a half-pixel
+        inset of 0.5/512 = 0.0009765625, NOT exact tile boundaries.
+        Without the inset, adjacent tiles can bleed into each other at
+        smaller mip levels."""
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 400)
         icon_add.add_icon(
@@ -209,49 +222,119 @@ class TestAtlasFamily:
         assert len(entries) == 1
         e = entries[0]
         assert e.attr_value("MapKey") == "First"
-        assert float(e.attr_value("U1")) == 0.0
-        assert float(e.attr_value("V1")) == 0.0
-        assert abs(float(e.attr_value("U2")) - 0.03125) < 1e-6
+        # Slot 0 in a 512x512 / 8x8 grid with half-pixel inset:
+        #   U1 = V1 = 0.5/512               = 0.0009765625
+        #   U2 = V2 = (64-0.5)/512           = 0.1240234375 (~0.12402344)
+        assert abs(float(e.attr_value("U1")) - 0.0009765625) < 1e-9
+        assert abs(float(e.attr_value("V1")) - 0.0009765625) < 1e-9
+        assert abs(float(e.attr_value("U2")) - 0.1240234375) < 1e-9
+        assert abs(float(e.attr_value("V2")) - 0.1240234375) < 1e-9
 
-    def test_writes_both_uv_map_forms(self, tmp_path):
-        """Full LSX at Public side (TextureAtlasInfo + IconUVList) AND
-        short LSX at Mods side (just `root` region with IconUV list)."""
+    def test_atlas_lsx_schema_matches_reference_mods(self, tmp_path):
+        """Critical schema requirements cross-checked against nightb and
+        mysticw, with each detail mattering for the toolkit to actually
+        render the icon:
+          - region order: IconUVList first, TextureAtlasInfo second
+          - Path attribute uses type='string' (not 'LSString')
+          - Height/Width use type='int32' (not 'int64')
+          - Path value is MOD-RELATIVE (no 'Public/<mod>/' prefix)
+        """
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 400)
         icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
+        )
+        uv = data_root / "Public" / "TestMod" / "GUI" / "Icons_TestMod.lsx"
+        raw = uv.read_text()
+
+        # Region order: IconUVList must come before TextureAtlasInfo.
+        i_uv = raw.index('region id="IconUVList"')
+        i_info = raw.index('region id="TextureAtlasInfo"')
+        assert i_uv < i_info, "IconUVList must precede TextureAtlasInfo"
+
+        # Path attribute type and value.
+        doc = lsx.parse_file(uv)
+        info = doc.region("TextureAtlasInfo")
+        path_node = next(n for n in _iter(info.root_node)
+                         if n.id == "TextureAtlasPath")
+        path_attr = next(a for a in path_node.attributes if a.id == "Path")
+        assert path_attr.type == "string"
+        # Mod-relative: no Public/<mod>/ prefix.
+        assert path_attr.value == "Assets/Textures/Icons/newAtlas.dds"
+
+        # Size types.
+        for size_node_id in ("TextureAtlasIconSize", "TextureAtlasTextureSize"):
+            size_node = next(n for n in _iter(info.root_node)
+                             if n.id == size_node_id)
+            for a in size_node.attributes:
+                if a.id in ("Height", "Width"):
+                    assert a.type == "int32", \
+                        f"{size_node_id}.{a.id} should be int32, got {a.type}"
+
+    def test_atlas_writes_lsf_binary_when_divine_configured(self, tmp_path, monkeypatch):
+        """Cross-checked against nightb and mysticw: both ship a binary
+        .lsf alongside the .lsx in Public/<mod>/GUI/. Without the .lsf,
+        the toolkit can index the icon by name but the game won't render
+        its texture at runtime. We require the .lsf when divine is
+        configured."""
+        from core import icon_add as ia
+
+        # Build a fake "divine" that just copies LSX → LSF so we don't
+        # need the real binary to test the write happens.
+        fake_exe = tmp_path / "divine.exe"
+        fake_exe.write_text("")
+
+        class FakeDivine:
+            def __init__(self, *a, **kw): pass
+            def lsx_to_lsf(self, src, dst):
+                Path(dst).write_bytes(Path(src).read_bytes())
+            def lsf_to_lsx(self, src, dst):
+                Path(dst).write_bytes(Path(src).read_bytes())
+        monkeypatch.setattr(ia.divine_mod, "Divine", FakeDivine)
+
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 400)
+        ia.add_icon(
             data_root=data_root, mod_folder="TestMod",
             icon_name="MySpell", icon_type="Spell / Skill", png_path=png,
+            divine_path=str(fake_exe),
         )
-        full_uv = data_root / "Public" / "TestMod" / "GUI" / "Icons_TestMod.lsx"
-        short_uv = data_root / "Mods" / "TestMod" / "GUI" / "Icons_TestMod.lsf.lsx"
-        assert full_uv.exists()
-        assert short_uv.exists()
-        full_doc = lsx.parse_file(full_uv)
-        assert full_doc.region("TextureAtlasInfo") is not None
-        assert full_doc.region("IconUVList") is not None
-        short_doc = lsx.parse_file(short_uv)
-        assert short_doc.region("root") is not None
-        assert short_doc.region("TextureAtlasInfo") is None
+        gui = data_root / "Public" / "TestMod" / "GUI"
+        assert (gui / "Icons_TestMod.lsx").exists()
+        assert (gui / "Icons_TestMod.lsf").exists()
 
-    def test_texturebank_uuid_matches_uv_map(self, tmp_path):
+    def test_no_mods_side_uv_lsf_or_lsx_lsx_written(self, tmp_path):
+        """Neither nightb nor mysticw has any Mods-side UV map file.
+        The old code wrote Mods/<mod>/GUI/Icons_<mod>.lsf.lsx; we now
+        don't, since real mods don't."""
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 400)
         icon_add.add_icon(
             data_root=data_root, mod_folder="TestMod",
-            icon_name="Linked", icon_type="Spell / Skill", png_path=png,
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
         )
-        base = data_root / "Public" / "TestMod"
-        uv_doc = lsx.parse_file(base / "GUI" / "Icons_TestMod.lsx")
-        tb_doc = lsx.parse_file(base / "Content" / "UI" / "[PAK]_UI" / "_merged.lsf.lsx")
-        uv_uuid = None
-        for n in _iter(uv_doc.region("TextureAtlasInfo").root_node):
-            if n.id == "TextureAtlasPath":
-                uv_uuid = n.attr_value("UUID")
-        tb_uuid = None
-        for n in _iter(tb_doc.region("TextureBank").root_node):
-            if n.id == "Resource":
-                tb_uuid = n.attr_value("ID")
-        assert uv_uuid and tb_uuid and uv_uuid == tb_uuid
+        mods_gui = data_root / "Mods" / "TestMod" / "GUI"
+        for stale in [
+            mods_gui / "Icons_TestMod.lsf",
+            mods_gui / "Icons_TestMod.lsf.lsx",
+            mods_gui / "Simple_Icons.lsf",
+            mods_gui / "Simple_Icons.lsf.lsx",
+        ]:
+            assert not stale.exists(), f"old/wrong file should not exist: {stale}"
+
+    def test_no_texturebank_written(self, tmp_path):
+        """Neither nightb nor mysticw has a TextureBank _merged.lsf.lsx.
+        The old code wrote one; we now don't."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 400)
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
+        )
+        tb = (data_root / "Public" / "TestMod" / "Content" / "UI"
+              / "[PAK]_UI" / "_merged.lsf.lsx")
+        assert not tb.exists()
 
     def test_second_icon_appends_to_atlas(self, tmp_path):
         data_root = _mod_skeleton(tmp_path)
@@ -274,6 +357,64 @@ class TestAtlasFamily:
         r2 = icon_add.add_icon(data_root=data_root, mod_folder="TestMod",
                                icon_name="Dup", icon_type="Spell / Skill", png_path=png)
         assert r2.slot_index == 0
+
+    def test_65th_icon_overflows_into_second_atlas(self, tmp_path):
+        """The 8x8 grid fits 64 icons. The 65th should land in a new
+        atlas: newAtlas_2.dds + Icons_<mod>_2.lsx, with the icon at
+        slot 0 of the new atlas. Mirrors mysticw's pattern of shipping
+        multiple atlases (newAtlas.dds + SecondAVAtlas.dds + ...)."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 100)
+        # Fill the first atlas.
+        for i in range(64):
+            icon_add.add_icon(
+                data_root=data_root, mod_folder="TestMod",
+                icon_name=f"Icon{i:02d}", icon_type="Spell / Skill", png_path=png,
+            )
+        # 65th icon: should overflow.
+        result = icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="Overflow", icon_type="Spell / Skill", png_path=png,
+        )
+        assert result.slot_index == 0  # First slot of the new atlas
+        # New atlas DDS exists.
+        atlas2 = (data_root / "Public" / "TestMod" / "Assets" / "Textures"
+                  / "Icons" / "newAtlas_2.dds")
+        assert atlas2.exists()
+        # New atlas LSX exists and has 'Overflow' in it.
+        lsx2 = data_root / "Public" / "TestMod" / "GUI" / "Icons_TestMod_2.lsx"
+        assert lsx2.exists()
+        doc2 = lsx.parse_file(lsx2)
+        names = {n.attr_value("MapKey") for n in _iter(doc2.region("IconUVList").root_node) if n.id == "IconUV"}
+        assert names == {"Overflow"}
+        # First atlas LSX is unchanged (still has 64 icons, no "Overflow").
+        lsx1 = data_root / "Public" / "TestMod" / "GUI" / "Icons_TestMod.lsx"
+        doc1 = lsx.parse_file(lsx1)
+        names1 = {n.attr_value("MapKey") for n in _iter(doc1.region("IconUVList").root_node) if n.id == "IconUV"}
+        assert len(names1) == 64
+        assert "Overflow" not in names1
+
+    def test_overflow_atlas_path_value_uses_overflow_filename(self, tmp_path):
+        """The 2nd atlas's LSX should reference 'newAtlas_2.dds', not
+        'newAtlas.dds', so its TextureAtlasPath points at the right
+        sheet. Otherwise both atlas LSXs would point at the same DDS."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 100)
+        for i in range(64):
+            icon_add.add_icon(
+                data_root=data_root, mod_folder="TestMod",
+                icon_name=f"Icon{i:02d}", icon_type="Spell / Skill", png_path=png,
+            )
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="Overflow", icon_type="Spell / Skill", png_path=png,
+        )
+        lsx2 = data_root / "Public" / "TestMod" / "GUI" / "Icons_TestMod_2.lsx"
+        doc2 = lsx.parse_file(lsx2)
+        info = doc2.region("TextureAtlasInfo")
+        path_node = next(n for n in _iter(info.root_node) if n.id == "TextureAtlasPath")
+        path_value = next(a.value for a in path_node.attributes if a.id == "Path")
+        assert path_value == "Assets/Textures/Icons/newAtlas_2.dds"
 
 
 # ---------------------------------------------------------------------------
@@ -642,3 +783,71 @@ def test_uses_binary_lsf_when_divine_available(tmp_path, monkeypatch):
     meta_lsx = data_root / "Mods" / "TestMod" / "GUI" / "metadata.lsf.lsx"
     assert meta_lsf.exists()
     assert not meta_lsx.exists()
+
+
+# ---------------------------------------------------------------------------
+# Helpful fallback note when divine_path is misconfigured
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_note_when_divine_path_is_invalid(tmp_path):
+    """Regression: user reported getting 'divine.exe not configured' even
+    though they HAD configured divine. The cause was a stale or quoted
+    path. The note now distinguishes the two cases so the user can see
+    which problem they have."""
+    data_root = _mod_skeleton(tmp_path)
+    png = _make_png(tmp_path / "src.png", 200)
+    nonexistent = str(tmp_path / "actually_missing.exe")
+    result = icon_add.add_icon(
+        data_root=data_root, mod_folder="TestMod",
+        icon_name="X", icon_type="Spell / Skill", png_path=png,
+        divine_path=nonexistent,
+    )
+    note = " ".join(result.notes)
+    # New message names the path so the user can see what didn't resolve.
+    assert nonexistent in note
+    # Doesn't claim they didn't configure it.
+    assert "not configured" not in note
+
+
+def test_fallback_note_when_no_divine_path_given(tmp_path):
+    """When divine_path is None (user genuinely hasn't configured it),
+    the old message is still appropriate."""
+    data_root = _mod_skeleton(tmp_path)
+    png = _make_png(tmp_path / "src.png", 200)
+    result = icon_add.add_icon(
+        data_root=data_root, mod_folder="TestMod",
+        icon_name="X", icon_type="Spell / Skill", png_path=png,
+        divine_path=None,
+    )
+    note = " ".join(result.notes)
+    assert "not configured" in note
+
+
+def test_quoted_divine_path_is_accepted(tmp_path, monkeypatch):
+    """Windows 'Copy as path' wraps paths in quotes. find_divine now
+    strips surrounding quotes, so a path passed in that form should
+    still let divine run (here we monkeypatch divine to skip the actual
+    binary execution)."""
+    from core import icon_add as ia
+    fake_exe = tmp_path / "divine.exe"
+    fake_exe.write_text("")
+
+    class FakeDivine:
+        def __init__(self, *a, **kw): pass
+        def lsx_to_lsf(self, src, dst): Path(dst).write_bytes(Path(src).read_bytes())
+        def lsf_to_lsx(self, src, dst): Path(dst).write_bytes(Path(src).read_bytes())
+    monkeypatch.setattr(ia.divine_mod, "Divine", FakeDivine)
+
+    data_root = _mod_skeleton(tmp_path)
+    png = _make_png(tmp_path / "src.png", 200)
+    quoted_path = f'"{fake_exe}"'
+    result = ia.add_icon(
+        data_root=data_root, mod_folder="TestMod",
+        icon_name="Hero", icon_type="Portrait", png_path=png,
+        divine_path=quoted_path,
+    )
+    # divine ran successfully → binary .lsf written, no fallback note.
+    note = " ".join(result.notes)
+    assert "fallback" not in note
+    assert (data_root / "Mods" / "TestMod" / "GUI" / "metadata.lsf").exists()
