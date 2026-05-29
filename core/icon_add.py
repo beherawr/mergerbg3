@@ -802,13 +802,28 @@ def _write_atlas_uv_files(
     try:
         divine_exe = divine_mod.find_divine(divine_path)
     except divine_mod.DivineNotFoundError:
-        result.notes.append(
-            f"Atlas LSX written ({lsx_path.name}) but the binary "
-            f"{lsf_path.name} was NOT written because divine.exe isn't "
-            f"configured. The BG3 Toolkit will probably show the icon "
-            f"name without rendering its texture until the LSF exists. "
-            f"Set divine.exe in Settings and re-add the icon."
-        )
+        # Same distinction as in _register_in_metadata: name the bad
+        # path when one was provided, so the user can see WHAT didn't
+        # resolve. Saying just "not configured" when they actually had
+        # configured a (now-stale or typo'd) path was misleading.
+        if divine_path:
+            result.notes.append(
+                f"Atlas LSX written ({lsx_path.name}) but the binary "
+                f"{lsf_path.name} was NOT written. The divine.exe path "
+                f"in Settings ({divine_path!r}) doesn't resolve to an "
+                f"existing file - check for typos, surrounding quotes "
+                f"(from Windows 'Copy as path'), or that the file "
+                f"hasn't been moved. Without the LSF, the BG3 Toolkit "
+                f"may show the icon name without rendering its texture."
+            )
+        else:
+            result.notes.append(
+                f"Atlas LSX written ({lsx_path.name}) but the binary "
+                f"{lsf_path.name} was NOT written because divine.exe "
+                f"isn't configured. The BG3 Toolkit may show the icon "
+                f"name without rendering its texture until the LSF "
+                f"exists. Set divine.exe in Settings and re-add."
+            )
         return
 
     try:

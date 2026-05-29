@@ -79,6 +79,52 @@ def _copy_long(src: Path, dst: Path) -> None:
     shutil.copy2(io_util.to_long_path(src), io_util.to_long_path(dst))
 
 
+def _remap_binary_lsf(
+    src: Path, dst: Path, rset: "remap.RemapSet",
+    divine: "_divine.Divine | None",
+) -> bool:
+    """Round-trip a binary LSF through LSX so its path/UUID/handle
+    attributes can be remapped, then write the remapped LSF to ``dst``.
+
+    Returns True on success, False if ``divine`` is None. The fallback
+    path (verbatim copy) is the caller's responsibility, since the
+    caller has the result/notes context for reporting that the binary's
+    references will be stale.
+
+    The merger previously assumed binary LSF content didn't carry mod-
+    folder-relative path strings, and so copied binary LSF verbatim
+    even when remapping was needed. That assumption is fine for most
+    banks (which reference assets by UUID), but it breaks
+    VirtualTextureBank registries: each entry's Path attribute is a
+    full ``Public/<mod>/Assets/VirtualTextures/<name>.gts`` string, and
+    after the merger renames the mod folder those strings still point
+    at the old name. The engine then can't resolve the GTS file and
+    renders virtual textures as black.
+    """
+    if divine is None:
+        return False
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".lsx", delete=False) as tmp_in:
+        tmp_in_path = Path(tmp_in.name)
+    with tempfile.NamedTemporaryFile(suffix=".lsx", delete=False) as tmp_out:
+        tmp_out_path = Path(tmp_out.name)
+    try:
+        divine.lsf_to_lsx(src, tmp_in_path)
+        parsed = lsx.parse_file(tmp_in_path)
+        if rset:
+            remap.rewrite_lsx(parsed, rset)
+        lsx.write_file(parsed, tmp_out_path)
+        divine.lsx_to_lsf(tmp_out_path, dst)
+        return True
+    finally:
+        for p in (tmp_in_path, tmp_out_path):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+
 def _mkdir_long(d: Path) -> None:
     """``Path.mkdir(parents=True, exist_ok=True)`` that survives long
     paths on Windows. For paths approaching MAX_PATH we walk up the
@@ -206,6 +252,11 @@ class MergeResult:
     conflicts: list[MergeConflict] = field(default_factory=list)
     skipped_files: list[Path] = field(default_factory=list)  # discarded by design
     orphan_warnings: dict[str, list[str]] = field(default_factory=dict)
+    # Global, user-facing warnings that aren't tied to a single file or
+    # a single conflict - e.g. "divine.exe wasn't configured, so binary
+    # VirtualTextureBank entries couldn't be remapped and virtual
+    # textures will render black".
+    notes: list[str] = field(default_factory=list)
 
 
 class MergeError(RuntimeError):
@@ -721,9 +772,9 @@ def _emit_files(
         if in_a and in_b:
             _emit_merged(dest, in_a, in_b, config, result)
         elif in_a:
-            _emit_single(dest, in_a, result)
+            _emit_single(dest, in_a, config, result)
         elif in_b:
-            _emit_single(dest, in_b, result)
+            _emit_single(dest, in_b, config, result)
     report("emit", total, total, f"Wrote {total} files")
 
 
@@ -739,6 +790,7 @@ _RENAME_ON_COLLIDE_CATEGORIES: frozenset[FileCategory] = frozenset({
     FileCategory.ASSET_IMPORT_SETTINGS,  # .xml paired with .gr2/.tif/.dds
     FileCategory.VFX_LSFX,               # visual effects definitions
     FileCategory.BANK_LSF,               # VisualBank/MaterialBank/TextureBank etc.
+    FileCategory.VIRTUAL_TEXTURE_ASSET,  # .gts/.gtp tileset binaries (referenced by path from VTB)
 })
 
 # IMAGE_ASSET (mod_publish_logo.png, thumbnail.png) is deliberately NOT in
@@ -1009,6 +1061,7 @@ def _destination_for(
 def _emit_single(
     dest: Path,
     source_tuple: tuple[Project, CatalogedFile, remap.RemapSet],
+    config: MergeConfig,
     result: MergeResult,
 ) -> None:
     """One input has this file; the other doesn't. Apply that input's
@@ -1033,21 +1086,38 @@ def _emit_single(
         localization.write_file(parsed, dest)
     elif cf.category in (
         FileCategory.ROOT_TEMPLATE_LSX, FileCategory.BANK_LSX,
-        FileCategory.UI_MERGED, FileCategory.ICON_UV_LSX,
+        FileCategory.UI_MERGED, FileCategory.VIRTUAL_TEXTURE_BANK,
+        FileCategory.ICON_UV_LSX,
         FileCategory.ROOT_TEMPLATE_MERGED, FileCategory.LEVEL_CONTENT_LSX,
     ):
         # These categories include both binary (.lsf) and text (.lsx /
-        # .lsf.lsx) forms. We can only parse-and-rewrite the text form;
-        # binary forms get copied verbatim. (LSF round-trip via divine.exe
-        # is a future enhancement; for current use cases binary content
-        # doesn't reference mod folder names.)
+        # .lsf.lsx) forms. Text form parses directly; binary form needs
+        # to round-trip through divine so path/UUID attributes get
+        # remapped. Verbatim copy of a binary registry leaves stale
+        # mod-folder paths inside the bytes (the cause of virtual
+        # textures rendering black after a merge before this fix).
         if cf.path.name.endswith(".lsx"):
             parsed = lsx.parse_file(cf.path)
             if rset:
                 remap.rewrite_lsx(parsed, rset)
             lsx.write_file(parsed, dest)
         else:
-            _copy_long(cf.path, dest)
+            roundtripped = _remap_binary_lsf(cf.path, dest, rset, config.divine)
+            if not roundtripped:
+                _copy_long(cf.path, dest)
+                # Only worth warning about for registries whose binary
+                # content is known to encode mod-folder paths. For
+                # other binary LSF (root templates, level content),
+                # references are by UUID and verbatim copy is fine.
+                if cf.category == FileCategory.VIRTUAL_TEXTURE_BANK:
+                    result.notes.append(
+                        f"Copied binary VirtualTextureBank {cf.path.name} "
+                        f"verbatim because divine.exe isn't configured. "
+                        f"The bank's GTS path attributes still reference "
+                        f"the original mod folder, so virtual textures "
+                        f"will render black in-game. Set divine.exe in "
+                        f"Settings and re-merge to fix."
+                    )
     elif cf.category in (
         FileCategory.STORY_GOAL, FileCategory.SE_LUA, FileCategory.STORY_HEADER,
         FileCategory.STORY_DEFINITIONS, FileCategory.STORY_ORPHAN_IGNORE,
@@ -1280,6 +1350,7 @@ _STRUCTURED_LSX_MERGE_CATEGORIES = frozenset({
                                        # Equipment.lsx, and the user's
                                        # "editor tables" under Editor/Mods/
     FileCategory.UI_MERGED,           # UI widget registrations
+    FileCategory.VIRTUAL_TEXTURE_BANK, # Virtual texture GTexName→GTS path map
     FileCategory.ICON_UV_LSX,         # icon UV-coordinate registry (text)
     FileCategory.ICON_UV_LSF,         # icon UV-coordinate registry (binary)
     FileCategory.ROOT_TEMPLATE_MERGED, # RootTemplates/_merged.lsf|.lsf.lsx

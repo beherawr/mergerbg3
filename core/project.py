@@ -56,6 +56,22 @@ class FileCategory(Enum):
     BANK_LSF = "bank_lsf"               # Public/<Folder>/Content/[PAK]_*/*.lsf
     BANK_LSX = "bank_lsx"               # Public/<Folder>/Content/[PAK]_*/*.lsx
     UI_MERGED = "ui_merged"             # Public/<Folder>/Content/UI/[PAK]_UI/_merged.lsx / .lsf / .lsf.lsx
+    # Virtual texture registry: Public/<Folder>/Content/[PAK]_VirtualTextures/
+    # _merged.{lsx,lsf,lsf.lsx}. Holds VirtualTextureBank entries that
+    # map a GTexFileName UUID to the .gts tileset on disk. Critically,
+    # the Path attribute on each entry uses the full "Public/<Folder>/
+    # Assets/VirtualTextures/<name>.gts" form (mod folder name included),
+    # so a merge that renames the mod folder MUST rewrite these paths
+    # or virtual textures will appear black in-game.
+    VIRTUAL_TEXTURE_BANK = "virtual_texture_bank"
+    # The actual tileset binaries (".gts" tile set + ".gtp" tile page)
+    # under Public/<Folder>/Assets/VirtualTextures/. Referenced by path
+    # from the VirtualTextureBank above. Like TEXTURE_DDS, two mods can
+    # ship identically-named tilesets (the toolkit defaults to a
+    # generated UUID-derived name, but authors sometimes keep the same
+    # "Albedo_Normal_Physical_9.gts" stem), so collisions need rename+
+    # rewrite instead of silently dropping one.
+    VIRTUAL_TEXTURE_ASSET = "virtual_texture_asset"
     ICON_UV_LSX = "icon_uv_lsx"         # Public/<Folder>/GUI/<Name>_Icons.lsx (or Icons_*.lsx)
     ICON_UV_LSF = "icon_uv_lsf"         # Binary parallel of the above
 
@@ -417,6 +433,19 @@ def _categorize(
                 file_path, FileCategory.ICON_UV_LSF, rel, rel_under_mod, bucket,
             )
 
+    # Virtual texture registry: Public/<Mod>/Content/[PAK]_VirtualTextures/
+    # _merged.{lsx,lsf,lsf.lsx}. Parallel to UI_MERGED. Has to come
+    # BEFORE the generic BANK_LSF rule below or it'd be swallowed and
+    # treated as an opaque bank instead of a registry whose binary
+    # paths need remapping on mod-folder rename.
+    if (bucket == "Public" and rel_under_mod is not None
+            and "Content" in rel_under_mod.parts
+            and any("[PAK]_VirtualTextures" in p for p in rel_under_mod.parts)
+            and name in {"_merged.lsx", "_merged.lsf", "_merged.lsf.lsx"}):
+        return CatalogedFile(
+            file_path, FileCategory.VIRTUAL_TEXTURE_BANK, rel, rel_under_mod, bucket,
+        )
+
     # Banks (VisualBank/MaterialBank/TextureBank/etc.) under Content/[PAK]_*/
     if (bucket == "Public" and rel_under_mod is not None
             and "Content" in rel_under_mod.parts
@@ -446,6 +475,17 @@ def _categorize(
     if name.lower().endswith(".tif") or name.lower().endswith(".tiff"):
         return CatalogedFile(
             file_path, FileCategory.TEXTURE_TIF, rel, rel_under_mod, bucket,
+        )
+
+    # Virtual texture tilesets (.gts) and pages (.gtp) under
+    # Public/<Mod>/Assets/VirtualTextures/. These are large binary
+    # tile-streaming assets referenced BY PATH from the
+    # VirtualTextureBank above, so a collision between two mods'
+    # identically-named tilesets needs rename-and-rewrite (same pattern
+    # as DDS/GR2), not the silent keep-A drop-B that "OTHER" would do.
+    if name.lower().endswith(".gts") or name.lower().endswith(".gtp"):
+        return CatalogedFile(
+            file_path, FileCategory.VIRTUAL_TEXTURE_ASSET, rel, rel_under_mod, bucket,
         )
 
     # Packed textures (DDS)
