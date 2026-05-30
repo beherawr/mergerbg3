@@ -834,6 +834,16 @@ class AddIconDialog(QDialog):
 
         layout.addLayout(form)
 
+        # Cosmetic options (background + tooltip fade) with live
+        # preview. Auto-hidden for icon families that don't go through
+        # the atlas pipeline (Class / ActionResource / Portrait). The
+        # panel always exists; we just toggle visibility in
+        # _on_type_changed below so initial show/hide matches the
+        # default-selected icon type.
+        from .icon_preview import IconCosmeticPanel
+        self.cosmetic_panel = IconCosmeticPanel(self)
+        layout.addWidget(self.cosmetic_panel)
+
         # A per-type hint line that updates as the type changes.
         self.type_hint = QLabel("")
         self.type_hint.setWordWrap(True)
@@ -860,6 +870,12 @@ class AddIconDialog(QDialog):
 
     def _on_type_changed(self, label: str) -> None:
         spec = icon_add.ICON_TYPES.get(label)
+        # Show the cosmetic options only when the icon family supports
+        # them (ATLAS). Other families write to different paths
+        # entirely and have no atlas/tooltip pipeline to apply effects
+        # to.
+        if hasattr(self, "cosmetic_panel") and spec is not None:
+            self.cosmetic_panel.set_visible_for_family(spec.family)
         if spec is None:
             self.type_hint.setText("")
             return
@@ -908,6 +924,11 @@ class AddIconDialog(QDialog):
         if path:
             self._png_path = Path(path)
             self.png_edit.setText(path)
+            # Push the new source into the preview panel so it
+            # immediately renders the live thumbnails. Cheap operation;
+            # we don't worry about debouncing.
+            if hasattr(self, "cosmetic_panel"):
+                self.cosmetic_panel.set_source_png(self._png_path)
             self._update_ok_enabled()
 
     def _update_ok_enabled(self) -> None:
@@ -924,6 +945,17 @@ class AddIconDialog(QDialog):
             return
 
         try:
+            # Pull the chosen compose options out of the panel. When
+            # the panel is hidden (Class/ActionResource/Portrait), or
+            # the user left both controls at defaults, this is a
+            # no-op IconComposeOptions and add_icon behaves exactly
+            # as before. add_icon also ignores compose_options for
+            # non-ATLAS families.
+            compose_options = (
+                self.cosmetic_panel.options()
+                if hasattr(self, "cosmetic_panel")
+                else None
+            )
             result = icon_add.add_icon(
                 data_root=d.data_root,
                 mod_folder=d.mod_folder_name,
@@ -931,6 +963,7 @@ class AddIconDialog(QDialog):
                 icon_type=icon_type,
                 png_path=self._png_path,
                 divine_path=self._divine_path,
+                compose_options=compose_options,
             )
         except icon_add.IconAddError as e:
             QMessageBox.warning(self, "Couldn't add icon", str(e))
@@ -963,6 +996,8 @@ class AddIconDialog(QDialog):
         self.name_edit.clear()
         self._png_path = None
         self.png_edit.clear()
+        if hasattr(self, "cosmetic_panel"):
+            self.cosmetic_panel.set_source_png(None)
         self._update_ok_enabled()
 
 

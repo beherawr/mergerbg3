@@ -58,6 +58,18 @@ if os.path.isdir(_vendor_lslib):
             dest_dir = 'tools/lslib' if rel in ('.', '') else f'tools/lslib/{rel.replace(os.sep, "/")}'
             _bundled_datas.append((src, dest_dir))
 
+# Icon backgrounds for the Add Icon dialog's cosmetic options. These
+# live alongside the GUI code at gui/assets/icon_backgrounds/ in
+# source, and end up at the same relative path under sys._MEIPASS
+# inside the bundled exe. core.icon_compose._backgrounds_dir() looks
+# them up at runtime in both layouts.
+_bg_assets = os.path.join('gui', 'assets', 'icon_backgrounds')
+if os.path.isdir(_bg_assets):
+    for name in os.listdir(_bg_assets):
+        src = os.path.join(_bg_assets, name)
+        if os.path.isfile(src):
+            _bundled_datas.append((src, 'gui/assets/icon_backgrounds'))
+
 a = Analysis(
     ['gui/__main__.py'],
     pathex=[],

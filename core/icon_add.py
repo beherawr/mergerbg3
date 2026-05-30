@@ -73,6 +73,7 @@ from PIL import Image
 from . import lsx
 from . import io_util
 from . import divine as divine_mod
+from . import icon_compose
 
 
 # ===========================================================================
@@ -1020,6 +1021,7 @@ def _add_atlas_icon(
     data_root: Path, mod_folder: str, icon_name: str, spec: IconTypeSpec,
     src: Image.Image, result: IconAddResult,
     divine_path: str | None,
+    compose_options: icon_compose.IconComposeOptions,
 ) -> None:
     metadata_entries: list[tuple[str, int, int]] = []
     # Cross-check note: nightb and mysticw register ONLY the Assets/
@@ -1029,11 +1031,48 @@ def _add_atlas_icon(
     # dimensions; the engine resolves the LowRes counterpart by path
     # convention.)
 
+    # Pre-compose each per-size variant the user opted in for. The
+    # 380 tooltip image can have a radial fade applied; the 144
+    # controller and 64 hotbar tiles can have a stock background
+    # composited behind them. Either treatment is OFF by default; if
+    # the user didn't toggle anything, compose_options.apply* return
+    # False and these helpers degrade to a plain resize (identical to
+    # the pre-feature behaviour). Composition happens at each TARGET
+    # SIZE (not once and then resized) so the background-frame detail
+    # isn't aliased to mush when downscaling 144→64.
+    tooltip_img = (
+        icon_compose.compose_tooltip(src, compose_options, TOOLTIP_PX)
+        if compose_options.applies_fade else src
+    )
+    controller_img = (
+        icon_compose.compose_atlas_tile(src, compose_options, CONTROLLER_PX)
+        if compose_options.applies_background else src
+    )
+    # Hotbar tile is composed inside the atlas-paste step (section 3),
+    # because the paste needs to happen at slot-coords on the 512x512
+    # sheet — we just generate the 64x64 result here and hand it off.
+    hotbar_tile = (
+        icon_compose.compose_atlas_tile(src, compose_options, ICON_PX)
+        if compose_options.applies_background else src.resize(
+            (ICON_PX, ICON_PX), Image.LANCZOS
+        )
+    )
+    if compose_options.applies_background:
+        result.notes.append(
+            f"Applied background {compose_options.background.label!r} "
+            f"to hotbar (64x64) and controller (144x144) icons."
+        )
+    if compose_options.applies_fade:
+        pct = int(round(compose_options.tooltip_fade * 100))
+        result.notes.append(
+            f"Applied tooltip fade at {pct}% strength to 380x380 image."
+        )
+
     # --- 1. Tooltip (380): Mods/<Mod>/GUI/Assets/Tooltips/Icons/<name>.DDS ---
     tooltip_base = data_root / "Mods" / mod_folder / "GUI" / "Assets" / "Tooltips" / "Icons"
     tooltip_lowres = data_root / "Mods" / mod_folder / "GUI" / "AssetsLowRes" / "Tooltips" / "Icons"
     _write_dds_pair(
-        src, TOOLTIP_PX, TOOLTIP_PX,
+        tooltip_img, TOOLTIP_PX, TOOLTIP_PX,
         tooltip_base / f"{icon_name}.DDS",
         tooltip_lowres / f"{icon_name}.DDS",
         result,
@@ -1049,7 +1088,7 @@ def _add_atlas_icon(
         item_base = data_root / "Mods" / mod_folder / "GUI" / "Assets" / "Tooltips" / "ItemIcons"
         item_lowres = data_root / "Mods" / mod_folder / "GUI" / "AssetsLowRes" / "Tooltips" / "ItemIcons"
         _write_dds_pair(
-            src, TOOLTIP_PX, TOOLTIP_PX,
+            tooltip_img, TOOLTIP_PX, TOOLTIP_PX,
             item_base / f"{icon_name}.DDS",
             item_lowres / f"{icon_name}.DDS",
             result,
@@ -1062,7 +1101,7 @@ def _add_atlas_icon(
     ctl_base = data_root / "Mods" / mod_folder / "GUI" / "Assets" / "ControllerUIIcons" / spec.controller_subfolder
     ctl_lowres = data_root / "Mods" / mod_folder / "GUI" / "AssetsLowRes" / "ControllerUIIcons" / spec.controller_subfolder
     _write_dds_pair(
-        src, CONTROLLER_PX, CONTROLLER_PX,
+        controller_img, CONTROLLER_PX, CONTROLLER_PX,
         ctl_base / f"{icon_name}.DDS",
         ctl_lowres / f"{icon_name}.DDS",
         result,
@@ -1105,7 +1144,13 @@ def _add_atlas_icon(
     # --- 3a. Atlas DDS: load (or create) and paste the 64x64 tile. ---
     atlas_existed = atlas_dds_path.exists()
     atlas_img = _load_or_create_atlas(atlas_dds_path)
-    icon64 = src.resize((ICON_PX, ICON_PX), Image.LANCZOS)
+    # hotbar_tile is already 64x64, pre-composed at the top of this
+    # function with any optional background under the icon. Pre-
+    # composing at target size (instead of pasting src and then
+    # downscaling here) preserves the background frame's detail —
+    # downscaling a 144-with-frame composition to 64 would alias the
+    # runic-frame strokes into mush.
+    icon64 = hotbar_tile
     px, py = _slot_to_pixel(slot)
     # Clear the cell first so re-adds don't blend with old pixels.
     atlas_img.paste((0, 0, 0, 0), (px, py, px + ICON_PX, py + ICON_PX))
@@ -1354,6 +1399,7 @@ def add_icon(
     icon_type: str,
     png_path: Path,
     divine_path: str | None = None,
+    compose_options: "icon_compose.IconComposeOptions | None" = None,
 ) -> IconAddResult:
     """Add one icon to a mod from a source PNG.
 
@@ -1370,6 +1416,13 @@ def add_icon(
         divine_path: path to divine.exe, used to write binary .lsf files
             (metadata.lsf, Simple_Icons.lsf). If None or unconfigured,
             falls back to .lsf.lsx text forms.
+        compose_options: optional cosmetic post-processing — runic
+            background under the hotbar tile, radial fade on the
+            tooltip image. Default-constructed (or None) means no
+            effects, identical to pre-feature behaviour. Only applies
+            to ATLAS family icon types; ignored for Class/Subclass,
+            Action Resource, and Portrait families since those don't
+            go through the atlas/tooltip pipeline.
 
     Returns an IconAddResult. Raises IconAddError on any problem.
     """
@@ -1385,6 +1438,9 @@ def add_icon(
     if not png_path.is_file():
         raise IconAddError(f"PNG not found: {png_path}")
     src = _load_png(png_path)
+
+    if compose_options is None:
+        compose_options = icon_compose.IconComposeOptions()
 
     # Warn if source is smaller than the biggest target size for this
     # family. Doesn't fail - upscaling just softens the result.
@@ -1409,7 +1465,10 @@ def add_icon(
         )
 
     if spec.family is IconFamily.ATLAS:
-        _add_atlas_icon(data_root, mod_folder, icon_name, spec, src, result, divine_path)
+        _add_atlas_icon(
+            data_root, mod_folder, icon_name, spec, src, result,
+            divine_path, compose_options,
+        )
     elif spec.family is IconFamily.CLASS:
         _add_class_icon(data_root, mod_folder, icon_name, spec, src, result, divine_path)
     elif spec.family is IconFamily.ACTION_RESOURCE:
