@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import merger, meta as _meta
+from core import merger, meta as _meta, remap
 from core.project import Project, FileCategory, _categorize
 
 
@@ -453,3 +453,88 @@ def test_generated_destination_path_is_correctly_translated(tmp_path):
     assert parts[0] == "Generated"
     assert parts[1] == "Public"
     assert parts[2] == "MergedVT"
+
+
+def test_bank_lsf_sourcefile_remapped_on_mod_folder_rename(tmp_path):
+    """BANK_LSF files (TextureBank, VisualBank, MaterialBank entries
+    under Content/[PAK]_*/<uuid>.lsf) carry a SourceFile attribute
+    pointing at Public/<mod_folder>/Assets/...  When the merger renames
+    the mod folder, that SourceFile must be rewritten or the engine
+    looks for the asset under the OLD mod folder name.
+
+    Concrete failure mode this test pins against: with the original
+    input mod still installed alongside the merged mod, the toolkit
+    happens to resolve the asset through the stale path (since
+    Glasses scans every mod, not just the one whose VTB references
+    it). The bug only becomes visible once the input mod is removed
+    from the workspace — at which point meshes render BLACK.
+
+    We mock divine here (the real round-trip needs the actual
+    divine.exe + .NET runtime) but assert that BANK_LSF goes THROUGH
+    the binary-remap code path. With the bug present, BANK_LSF
+    falls through to the "Opaque binary or unparsed XML: copy bytes
+    unchanged" branch and never calls _remap_binary_lsf at all.
+    """
+    from core import merger
+    from core.project import Project, CatalogedFile, FileCategory
+
+    # Build a minimal cataloged file that looks like a BANK_LSF.
+    root = tmp_path / "src"
+    bank_path = (root / "Public" / "ModA"
+                 / "Content" / "[PAK]_ModA"
+                 / "abc12345-0000-0000-0000-000000000000.lsf")
+    bank_path.parent.mkdir(parents=True)
+    bank_path.write_bytes(b"LSOF\x07\x00\x00\x00fake-bank-lsf-payload")
+    cf = CatalogedFile(
+        path=bank_path,
+        category=FileCategory.BANK_LSF,
+        rel_to_project_root=bank_path.relative_to(root),
+        rel_under_mod_folder=bank_path.relative_to(root / "Public" / "ModA"),
+        bucket="Public",
+    )
+
+    # Count whether _remap_binary_lsf gets called. With the fix, it
+    # does (and may return False on the fake LSF, that's fine — what
+    # matters is the call happens). Without the fix, BANK_LSF goes
+    # straight to verbatim copy and the function is never called.
+    call_count = {"n": 0}
+    original = merger._remap_binary_lsf
+    def counting(*args, **kwargs):
+        call_count["n"] += 1
+        return original(*args, **kwargs)
+
+    config = merger.MergeConfig(
+        inputs=[],  # not used by _emit_single
+        output_dir=tmp_path / "out",
+        new_uuid="11111111-2222-3333-4444-555555555555",
+        new_folder="MergedMod",
+        new_name="MergedMod",
+        conflict_policy="skip",
+        divine=FakeDivine(),  # truthy so we hit the divine branch
+    )
+    result = merger.MergeResult(output_dir=config.output_dir, new_project=None)
+    rset = remap.RemapSet()
+    rset.paths.add_substring("Public/ModA", "Public/MergedMod")
+
+    # Monkey-patch in our counting wrapper.
+    import core.merger as _merger_mod
+    _merger_mod._remap_binary_lsf = counting
+    try:
+        dest = config.output_dir / "Public" / "MergedMod" / "Content" / "[PAK]_ModA" / cf.path.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        # _emit_single takes (dest, source_tuple, config, result).
+        # The Project in the tuple isn't used by the binary-remap
+        # code path; pass None to keep the test minimal.
+        merger._emit_single(dest, (None, cf, rset), config, result)
+    finally:
+        _merger_mod._remap_binary_lsf = original
+
+    assert call_count["n"] == 1, (
+        f"BANK_LSF must go through _remap_binary_lsf so its SourceFile "
+        f"attributes get rewritten when the mod folder is renamed. "
+        f"_remap_binary_lsf was called {call_count['n']} times; expected 1. "
+        f"If 0, BANK_LSF is falling through to the verbatim-copy branch "
+        f"and TextureBank SourceFile paths still point at the original "
+        f"input mod folder, causing black textures in-game when the "
+        f"original input mod is uninstalled."
+    )

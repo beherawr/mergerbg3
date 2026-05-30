@@ -1141,6 +1141,20 @@ def _emit_single(
         FileCategory.UI_MERGED, FileCategory.VIRTUAL_TEXTURE_BANK,
         FileCategory.ICON_UV_LSX,
         FileCategory.ROOT_TEMPLATE_MERGED, FileCategory.LEVEL_CONTENT_LSX,
+        # TextureBank / VisualBank / MaterialBank / etc. that the
+        # Toolkit splits across Content/[PAK]_*/  <uuid>.lsf files,
+        # one Resource entry per file. Each Resource has a SourceFile
+        # attribute pointing at Public/<mod_folder>/Assets/... — if
+        # the mod folder is renamed during merge, that SourceFile
+        # needs to be rewritten or the engine looks for the asset
+        # under the old folder name. With the original input mod
+        # still installed, the toolkit happens to resolve the asset
+        # there (because Glasses scans every mod, not just the one
+        # whose VTB references it) — which is why the bug was hidden
+        # for whichever mod's input was still in the workspace. With
+        # the input mod removed, the asset isn't reachable and the
+        # mesh renders black.
+        FileCategory.BANK_LSF,
     ):
         # These categories include both binary (.lsf) and text (.lsx /
         # .lsf.lsx) forms. Text form parses directly; binary form needs
