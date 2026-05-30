@@ -1,4 +1,4 @@
-# BG3 Mod Merger
+# BG3 Mod Merger + Icon Add Utility
 
 A Windows desktop tool for **merging two Baldur's Gate 3 Toolkit mods into a single mod**, with a built-in **icon generator** for spells, items, classes, action resources, and portraits.
 
