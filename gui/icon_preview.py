@@ -113,9 +113,10 @@ class IconCosmeticPanel(QGroupBox):
 
         # Hint about scope: makes it clear what each control does.
         hint = QLabel(
-            "<i>Background composites under the 64x64 hotbar and 144x144 "
-            "controller icons. Fade applies a soft radial edge to the "
-            "380x380 tooltip image. Both default off.</i>"
+            "<i>Background composites under the 64x64 hotbar tile only. "
+            "Fade applies a soft radial edge to the 380x380 tooltip "
+            "image. The 144x144 controller icon stays as-is — that "
+            "matches what reference mods ship. Both default off.</i>"
         )
         hint.setWordWrap(True)
         controls_col.addWidget(hint)
@@ -222,9 +223,15 @@ class IconCosmeticPanel(QGroupBox):
                 getattr(self, attr).setPixmap(QPixmap())
             return
 
-        # Hotbar (64) and controller (144) get background if selected.
+        # Hotbar (64) is the only size that gets the background
+        # composited under the icon. Cross-checked against nightb and
+        # mysticw: their 144x144 controller icons have transparent
+        # backgrounds (30-40% fully transparent pixels), not framed
+        # ones. To keep the preview honest about what hits disk, we
+        # render the controller from the raw source without applying
+        # the background, even when one is selected.
         hotbar = icon_compose.compose_atlas_tile(self._source, opts, 64)
-        controller = icon_compose.compose_atlas_tile(self._source, opts, 144)
+        controller = self._source.resize((144, 144), Image.Resampling.LANCZOS)
         # Tooltip is 380 internally; we downscale to 190 for the
         # preview pane. The DDS that ends up on disk is still 380.
         tooltip_full = icon_compose.compose_tooltip(self._source, opts, 380)

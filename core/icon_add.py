@@ -1044,10 +1044,15 @@ def _add_atlas_icon(
         icon_compose.compose_tooltip(src, compose_options, TOOLTIP_PX)
         if compose_options.applies_fade else src
     )
-    controller_img = (
-        icon_compose.compose_atlas_tile(src, compose_options, CONTROLLER_PX)
-        if compose_options.applies_background else src
-    )
+    # Controller icon (144) is intentionally NOT composited over a
+    # background. Cross-checked against nightb (e.g.
+    # PassiveFeature_ShadowforgedWeapon_NB438.DDS): controller icons
+    # at this size are 30-40% fully transparent — they're the raw
+    # artwork on a transparent canvas, with no runic frame
+    # composited under them. The frame appears on the 64x64 hotbar
+    # tile only. Compositing the background here would produce a
+    # visibly different result from what real BG3 mods ship.
+    controller_img = src
     # Hotbar tile is composed inside the atlas-paste step (section 3),
     # because the paste needs to happen at slot-coords on the 512x512
     # sheet — we just generate the 64x64 result here and hand it off.
@@ -1060,7 +1065,9 @@ def _add_atlas_icon(
     if compose_options.applies_background:
         result.notes.append(
             f"Applied background {compose_options.background.label!r} "
-            f"to hotbar (64x64) and controller (144x144) icons."
+            f"to the 64x64 hotbar tile. (Controller and tooltip icons "
+            f"don't get a background — that matches what reference "
+            f"mods ship.)"
         )
     if compose_options.applies_fade:
         pct = int(round(compose_options.tooltip_fade * 100))

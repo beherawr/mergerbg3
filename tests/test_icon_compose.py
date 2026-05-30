@@ -271,6 +271,71 @@ def test_add_icon_with_fade_adds_a_note(tmp_path):
     assert "fade" in note_text
 
 
+def test_add_icon_with_background_writes_solid_alpha_to_controller(tmp_path):
+    """The 144x144 controller icon must NOT get the background
+    composited under it - it stays as the raw artwork on transparent
+    canvas, matching what reference mods ship. The 64x64 hotbar tile
+    inside the atlas IS the only place the background goes.
+
+    We verify this by adding an icon with a solid background, then
+    reading the controller DDS back and confirming it has significant
+    transparency (>5% fully-transparent pixels). If the background
+    were composited in, the controller would be ~100% opaque.
+    """
+    from core import icon_add, meta as _meta
+    data_root = tmp_path / "ws"
+    for sub in ("Mods/M", "Public/M", "Editor/Mods/M", "Projects/M"):
+        (data_root / sub).mkdir(parents=True)
+    _meta.write_mod_meta_file(
+        _meta.ModMeta(uuid=_meta.generate_uuid(), folder="M", name="M", author="t"),
+        data_root / "Mods" / "M" / "meta.lsx",
+    )
+    # Foreground with a transparent rim — the same shape we used for
+    # other tests. If background got composited under it, the rim
+    # would become opaque (filled with bg).
+    fg = Image.new("RGBA", (380, 380), (0, 0, 0, 0))
+    pixels = fg.load()
+    cx = cy = 190
+    for y in range(380):
+        for x in range(380):
+            if (x - cx) ** 2 + (y - cy) ** 2 < 100 * 100:
+                pixels[x, y] = (255, 100, 100, 255)
+    png = tmp_path / "src.png"
+    fg.save(png)
+
+    # Add icon with a real background from the bundled set.
+    bgs = icon_compose.list_backgrounds()
+    if not bgs:
+        pytest.skip("Bundled backgrounds not present in this checkout")
+    opts = icon_compose.IconComposeOptions(background=bgs[0])
+    icon_add.add_icon(
+        data_root=data_root, mod_folder="M",
+        icon_name="Test", icon_type="Spell / Skill", png_path=png,
+        compose_options=opts,
+    )
+
+    # Read the controller DDS back. Pillow can read DDS.
+    controller_dds = (
+        data_root / "Mods" / "M" / "GUI" / "Assets"
+        / "ControllerUIIcons" / "skills_png" / "Test.DDS"
+    )
+    assert controller_dds.is_file(), "Controller DDS not written"
+    controller = Image.open(controller_dds).convert("RGBA")
+    alpha = controller.getchannel("A")
+    transparent_count = sum(1 for v in alpha.get_flattened_data() if v < 5)
+    total = controller.width * controller.height
+    transparent_fraction = transparent_count / total
+    # The source had ~78% fully-transparent area (everything outside the
+    # circle). DXT5 quantization can drift this a few percent. If the
+    # background were composited in, transparent fraction would be ~0%.
+    assert transparent_fraction > 0.5, (
+        f"Controller DDS has only {transparent_fraction:.1%} fully-transparent "
+        f"pixels. Expected >50% — if you see ~0%, the background got "
+        f"incorrectly composited into the controller icon. The background "
+        f"should ONLY go on the 64x64 hotbar tile inside the atlas."
+    )
+
+
 def test_add_icon_ignores_compose_options_for_non_atlas_families(tmp_path):
     """Class / Action Resource / Portrait families don't go through
     the atlas pipeline, so compose_options should be silently
