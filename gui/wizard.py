@@ -1454,52 +1454,70 @@ class RunPage(QWizardPage):
 
         # Build MergeConfig and spawn the worker. The merge mode picked
         # on the SelectionPage maps directly onto MergeConfig.in_place.
-        # If the user configured a divine.exe path, instantiate a bound
-        # Divine and pass it through so LSF round-tripping (binary VTB
-        # remap, GUI/metadata.lsf structural merge, ...) works.
+        #
+        # Divine resolution: we call find_divine() with whatever the
+        # user has in settings.divine_path (may be empty). find_divine
+        # treats empty/None as "find the bundled LSLib copy", which is
+        # what every normal user wants since we removed the divine
+        # path UI field — LSLib is bundled. Before that fix, the
+        # wizard short-circuited divine setup on empty path, which
+        # meant binary LSF files like metadata.lsf and
+        # VirtualTextureBank got dropped during merging even though
+        # LSLib was bundled and reachable. That's the reproducer for
+        # "virtual textures still black after merge with bundled
+        # LSLib".
+        from core.divine import Divine, find_divine
         divine_obj = None
-        divine_path = self.state.settings.divine_path.strip()
-        if divine_path:
-            try:
-                from core.divine import Divine, find_divine
-                divine_obj = Divine(exe_path=find_divine(divine_path))
-            except Exception as e:
-                # We used to silently fall back to no-divine mode here,
-                # but that hid the real cause of "virtual textures are
-                # still black after merge" reports: divine.exe was
-                # configured in Settings but the path didn't resolve
-                # (typo, stale path, surrounding quotes from "Copy as
-                # path", trailing whitespace, mixed slashes...) and the
-                # merge silently ran without it. Now we ask the user
-                # before doing a possibly-broken merge.
-                answer = QMessageBox.warning(
-                    self, "divine.exe not reachable",
-                    f"The divine.exe path in Settings doesn't resolve to "
-                    f"a usable file:\n\n"
-                    f"   Configured path: {divine_path!r}\n"
-                    f"   Error: {type(e).__name__}: {e}\n\n"
-                    f"Without divine.exe, the merger CAN still produce "
-                    f"output, but it can't structurally merge binary "
-                    f"LSF files. Specifically:\n"
-                    f"  - Virtual textures may render BLACK in-game "
-                    f"    (VirtualTextureBank paths can't be remapped).\n"
-                    f"  - One side of GUI/metadata.lsf is kept; the "
-                    f"    other is dropped.\n\n"
-                    f"Continue the merge anyway?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.Cancel,
-                )
-                if answer != QMessageBox.StandardButton.Yes:
-                    # Re-enable wizard navigation and abort.
-                    for btn in (
-                        QWizard.BackButton, QWizard.NextButton,
-                        QWizard.FinishButton, QWizard.CancelButton,
-                    ):
-                        b = wizard.button(btn)
-                        if b is not None:
-                            b.setEnabled(True)
-                    return
-                divine_obj = None
+        divine_path_setting = (self.state.settings.divine_path or "").strip()
+        # Pass through None when nothing's configured, so find_divine
+        # uses the bundled-then-PATH lookup. Pass the explicit path
+        # otherwise so a power user's override is honored.
+        try:
+            divine_obj = Divine(
+                exe_path=find_divine(divine_path_setting or None),
+            )
+        except Exception as e:
+            override_display = (
+                repr(divine_path_setting) if divine_path_setting
+                else "(none — using bundled)"
+            )
+            # We used to silently fall back to no-divine mode here,
+            # but that hid the real cause of "virtual textures are
+            # still black after merge" reports: divine.exe wasn't
+            # reachable and the merge ran without binary LSF
+            # round-tripping. Now we ask the user before doing a
+            # possibly-broken merge so they know what's about to
+            # happen.
+            answer = QMessageBox.warning(
+                self, "divine.exe not reachable",
+                f"The bundled divine.exe (or your configured override) "
+                f"isn't reachable:\n\n"
+                f"   Configured override: {override_display}\n"
+                f"   Error: {type(e).__name__}: {e}\n\n"
+                f"Without divine.exe, the merger CAN still produce "
+                f"output, but it can't structurally merge binary "
+                f"LSF files. Specifically:\n"
+                f"  - Virtual textures may render BLACK in-game.\n"
+                f"  - One side of GUI/metadata.lsf is kept; the "
+                f"    other is dropped (its registrations are lost).\n\n"
+                f"The most common cause is .NET 8 Desktop Runtime not "
+                f"being installed. Open Settings and click Test "
+                f"bundled LSLib to diagnose.\n\n"
+                f"Continue the merge anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                # Re-enable wizard navigation and abort.
+                for btn in (
+                    QWizard.BackButton, QWizard.NextButton,
+                    QWizard.FinishButton, QWizard.CancelButton,
+                ):
+                    b = wizard.button(btn)
+                    if b is not None:
+                        b.setEnabled(True)
+                return
+            divine_obj = None
 
         config = merger.MergeConfig(
             inputs=[self.state.project_a, self.state.project_b],
