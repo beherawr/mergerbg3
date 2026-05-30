@@ -990,10 +990,12 @@ class IdentityPage(QWizardPage):
 
         form = QFormLayout(self)
 
-        # UUID with regenerate button.
+        # UUID with regenerate button. We hook the textChanged signal
+        # below (after folder_edit is constructed) so any UUID change -
+        # whether from the regenerate button or initializePage's
+        # initial fill - automatically updates the derived folder.
         self.uuid_edit = QLineEdit()
         self.uuid_edit.setReadOnly(True)
-        self.uuid_edit.textChanged.connect(lambda _: self.completeChanged.emit())
         uuid_regen = QPushButton("New UUID")
         uuid_regen.clicked.connect(
             lambda: self.uuid_edit.setText(generate_uuid())
@@ -1006,12 +1008,42 @@ class IdentityPage(QWizardPage):
         form.addRow("UUID:", uuid_widget)
 
         self.name_edit = QLineEdit()
-        self.name_edit.textChanged.connect(lambda _: self.completeChanged.emit())
         form.addRow("Display name:", self.name_edit)
 
+        # Folder name is derived from "<sanitized display name>_<full
+        # UUID>" and stays read-only. The user previously asked for the
+        # folder to auto-update whenever either source changed; making
+        # the field read-only as well prevents the user from typing
+        # something custom that would be silently overwritten on the
+        # next display-name edit (which would be confusing). The styling
+        # makes the read-only state visually obvious so it doesn't look
+        # like a disabled bug.
         self.folder_edit = QLineEdit()
-        self.folder_edit.textChanged.connect(lambda _: self.completeChanged.emit())
+        self.folder_edit.setReadOnly(True)
+        self.folder_edit.setStyleSheet(
+            # Slightly muted background hints that this field is
+            # computed, not user-editable. Tooltip explains why.
+            "QLineEdit { background: palette(alternate-base); "
+            "color: palette(text); }"
+        )
+        self.folder_edit.setToolTip(
+            "Computed automatically from Display Name + UUID. "
+            "Edit Display Name or click New UUID to change it."
+        )
         form.addRow("Folder name:", self.folder_edit)
+
+        # NOW wire the recompute. Both signals point at the same slot,
+        # which reads the live UUID and display-name field values and
+        # writes the derived folder. Connecting AFTER all three widgets
+        # exist avoids a NameError on initial signal fire.
+        self.uuid_edit.textChanged.connect(self._recompute_folder_name)
+        self.name_edit.textChanged.connect(self._recompute_folder_name)
+        # completeChanged still fires (it's used for Next-button
+        # enablement); the previous lambda was doing that and we have
+        # to preserve it now that we've replaced the wiring.
+        self.uuid_edit.textChanged.connect(lambda _: self.completeChanged.emit())
+        self.name_edit.textChanged.connect(lambda _: self.completeChanged.emit())
+        self.folder_edit.textChanged.connect(lambda _: self.completeChanged.emit())
 
         self.author_edit = QLineEdit()
         form.addRow("Author:", self.author_edit)
@@ -1036,20 +1068,38 @@ class IdentityPage(QWizardPage):
 
     def initializePage(self) -> None:
         """Called by QWizard when the page is shown. Fills defaults
-        derived from the projects picked on the previous page."""
+        derived from the projects picked on the previous page.
+
+        Order matters here: we set the UUID first, then the display
+        name. As each of those is filled, the textChanged signal fires
+        and _recompute_folder_name regenerates the folder field. We
+        never call self.folder_edit.setText directly - it's always a
+        function of the other two.
+        """
         a, b = self.state.project_a, self.state.project_b
         if a is None or b is None:
             return
 
         if not self.state.new_uuid:
             self.state.new_uuid = generate_uuid()
+        # Setting the UUID first fires _recompute_folder_name with an
+        # empty display name. That's fine: the recompute uses "Mod" as
+        # the sanitized-name fallback, so the folder briefly reads
+        # "Mod_<uuid>". When we set the display name on the next line,
+        # the recompute fires again and replaces it with the correct
+        # value. Net effect for the user: the field is correct from
+        # the moment the page becomes visible.
         self.uuid_edit.setText(self.state.new_uuid)
-
-        suggested_folder = self.state.new_folder or _default_folder(a, b, self.state.new_uuid)
-        self.folder_edit.setText(suggested_folder)
 
         suggested_name = self.state.new_name or f"{a.mod_meta.name} + {b.mod_meta.name}"
         self.name_edit.setText(suggested_name)
+
+        # Honour a folder explicitly saved on the wizard state - the
+        # user may have come back to this page after editing. If state
+        # has a non-empty value, treat it as authoritative; otherwise
+        # the auto-derived folder we just computed is correct.
+        if self.state.new_folder:
+            self.folder_edit.setText(self.state.new_folder)
 
         self.author_edit.setText(self.state.new_author or _default_author(a, b))
         self.description_edit.setPlainText(self.state.new_description)
@@ -1067,6 +1117,25 @@ class IdentityPage(QWizardPage):
         # Live preview update as the folder name changes.
         self.folder_edit.textChanged.connect(lambda _: self._refresh_output_preview())
 
+    def _recompute_folder_name(self) -> None:
+        """Refresh the read-only folder field from the live display
+        name and UUID. Triggered whenever either source field's text
+        changes (initial fill, user typing in display name, UUID
+        regenerate button click).
+
+        We don't suppress signals here because folder_edit is read-only
+        and its only consumer (besides Qt's own change notification)
+        is _refresh_output_preview, which is cheap and idempotent.
+        """
+        uuid = self.uuid_edit.text().strip()
+        name = self.name_edit.text()
+        if not uuid:
+            # During very early construction (before initializePage
+            # fires) the UUID field is empty. Skip the recompute then
+            # rather than emit a placeholder folder name.
+            return
+        self.folder_edit.setText(_derive_folder_name(name, uuid))
+
     def _refresh_output_preview(self) -> None:
         folder = self.folder_edit.text().strip() or "&lt;your folder name&gt;"
         ws = self.state.output_dir
@@ -1074,7 +1143,8 @@ class IdentityPage(QWizardPage):
             f"{_escape(ws)}/Editor/Mods/<b>{folder}</b>/<br>"
             f"{_escape(ws)}/Mods/<b>{folder}</b>/<br>"
             f"{_escape(ws)}/Public/<b>{folder}</b>/<br>"
-            f"{_escape(ws)}/Projects/<b>{folder}</b>/"
+            f"{_escape(ws)}/Projects/<b>{folder}</b>/<br>"
+            f"{_escape(ws)}/Generated/Public/<b>{folder}</b>/"
         )
 
     def isComplete(self) -> bool:
@@ -1099,7 +1169,9 @@ class IdentityPage(QWizardPage):
         # exist already.
         od = Path(self.state.output_dir)
         collisions = []
-        for bucket in ("Editor/Mods", "Mods", "Public", "Projects"):
+        for bucket in (
+            "Editor/Mods", "Mods", "Public", "Projects", "Generated/Public",
+        ):
             target = od / bucket / self.state.new_folder
             if target.exists():
                 collisions.append(str(target))
@@ -1851,18 +1923,62 @@ def _escape(s: str) -> str:
     )
 
 
-def _default_folder(a: Project, b: Project, uuid: str) -> str:
-    """A sensible default Toolkit folder name for the merged mod.
+def _sanitize_for_folder_name(text: str) -> str:
+    """Reduce free-form text to characters safe for a Windows filesystem
+    folder name AND for the BG3 Toolkit's mod-folder identifier.
 
-    Strategy: take the leading portion of each input's folder (up to the
-    first underscore, which is where the Toolkit convention puts the UUID)
-    and concatenate with ``_Plus_``, then append a short UUID-prefix so
-    the folder name is unique across merges. Falls back to a UUID-only
-    folder if either input's name is empty.
+    The Toolkit identifies mods by their folder name internally, so the
+    name needs to be a valid path component on Windows (no
+    ``\\ / : * ? " < > |``, no control chars) and conventionally ASCII
+    alphanumeric with underscores (reference mods like nightb and
+    mysticw all follow this pattern). Anything that doesn't match
+    ``[A-Za-z0-9]`` collapses to a single underscore; leading and
+    trailing underscores get stripped so we don't end up with
+    ``_New_Name_<uuid>`` or ``New_Name__<uuid>``.
+
+    Empty input (or input that sanitizes to nothing, like ``"!!!"``)
+    returns the empty string; callers handle the fallback.
     """
-    a_root = a.mod_folder_name.split("_")[0] if a.mod_folder_name else "ModA"
-    b_root = b.mod_folder_name.split("_")[0] if b.mod_folder_name else "ModB"
-    return f"{a_root}_Plus_{b_root}_{uuid.replace('-', '')[:8]}"
+    import re
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", text)
+    return cleaned.strip("_")
+
+
+def _derive_folder_name(display_name: str, uuid: str) -> str:
+    """Build a Toolkit-safe folder name from the display name and UUID.
+
+    Format is ``<SanitizedDisplayName>_<FullUUID>``. The full UUID
+    (with dashes) is appended verbatim - dashes are legal in Windows
+    paths and in Toolkit identifiers, and reference mods use them
+    (e.g. ``mysticw_1edaea42-713d-43b2-a4f9-0abbbea946f5``). Using the
+    full UUID instead of a short prefix means folder names never
+    collide on partial-UUID hash collisions across many merges.
+
+    If the display name sanitizes to nothing (the user typed "!!!" or
+    similar), we fall back to ``Mod_<uuid>`` so the folder name is
+    still valid. Empty UUID is the caller's bug - we don't try to
+    paper over it.
+    """
+    safe = _sanitize_for_folder_name(display_name)
+    if not safe:
+        safe = "Mod"
+    return f"{safe}_{uuid}"
+
+
+def _default_folder(a: Project, b: Project, uuid: str) -> str:
+    """Initial folder suggestion before the user has touched anything.
+
+    This is just a seed for the Identity page: as soon as the page
+    loads it overrides whatever's here using ``_derive_folder_name``
+    fed with the auto-suggested display name (``"<A.name> + <B.name>"``).
+    We keep this function for backward compatibility with any caller
+    that grabs a default folder before the UI has populated, but new
+    code should go through ``_derive_folder_name`` so the folder
+    always matches the live display name + UUID combination the user
+    sees on screen.
+    """
+    suggested_name = f"{a.mod_meta.name} + {b.mod_meta.name}"
+    return _derive_folder_name(suggested_name, uuid)
 
 
 def _default_author(a: Project, b: Project) -> str:

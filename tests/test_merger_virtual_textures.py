@@ -266,9 +266,25 @@ def test_vtb_warns_when_divine_missing(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_two_mods_with_same_gts_filename_both_preserved(tmp_path):
-    """Two mods that each ship 'newTileset.gts' should both end up in
-    the merged output (one renamed), not silently lose B's copy."""
+def test_two_mods_with_identical_gts_dedup_correctly(tmp_path):
+    """When two mods ship a .gts file with the same UUID-derived name,
+    we must NOT rename either of them. The VirtualTextureBank stores
+    tileset filenames as identity references (TileSetFileName="<UUID>"
+    matches "<UUID>.gts" on disk). Renaming would orphan the VTB → on-
+    disk link and cause black-mesh rendering in-game.
+
+    The toolkit produces deterministic UUID names from source TIFs, so
+    two mods that built from the same source would have byte-identical
+    files anyway. The merger's normal keep-A-on-collision behavior
+    correctly preserves one copy under the original name; both mods'
+    VTBs (which reference the file by name) still resolve to that
+    surviving file.
+
+    Earlier versions of this test asserted the opposite — that .gts
+    should rename on collision — based on a wrong assumption about
+    how the VTB referenced its tilesets. That assumption was disproved
+    by inspecting a real merged mod's VTB: it stores UUIDs, not paths.
+    """
     a_root = _make_vt_project(tmp_path, "ModA", gts_filename="newTileset.gts")
     b_root = _make_vt_project(tmp_path, "ModB", gts_filename="newTileset.gts")
 
@@ -286,8 +302,154 @@ def test_two_mods_with_same_gts_filename_both_preserved(tmp_path):
     vt_dir = (config.output_dir / "Public" / "MergedGTS"
               / "Assets" / "VirtualTextures")
     gts_files = sorted(p.name for p in vt_dir.glob("*.gts"))
-    # Original + at least one renamed copy.
-    assert len(gts_files) >= 2, \
-        f"Expected both mods' .gts files to be preserved, got: {gts_files}"
-    # The original name still exists.
-    assert "newTileset.gts" in gts_files
+    # The original name should survive, with no renamed duplicate.
+    assert gts_files == ["newTileset.gts"], (
+        f"Expected one .gts file (the original name preserved); got: "
+        f"{gts_files}. If you see a renamed copy like 'newTileset_2.gts', "
+        f"the rename-on-collide logic is mistakenly active for "
+        f"VIRTUAL_TEXTURE_ASSET — that would break the VTB → on-disk "
+        f"reference, which is keyed by filename."
+    )
+
+
+def _make_vt_project_with_generated(tmp_path: Path, name: str) -> tuple[Path, str]:
+    """Build a minimal project that has both Public/ source content AND
+    a Generated/Public/<mod>/VirtualTextures/ tree mirroring what the
+    BG3 Toolkit produces after "Build Virtual Textures".
+
+    Returns the project root and the (deterministic-by-name) UUID-named
+    GTS filename, so the test can assert the file landed in the right
+    place in the merged output.
+    """
+    uuid = _meta.generate_uuid()
+    folder = f"{name}_{uuid}"
+    root = tmp_path / name
+    root.mkdir()
+
+    # Required mod meta.
+    mod_path = root / "Mods" / folder
+    mod_path.mkdir(parents=True)
+    _meta.write_mod_meta_file(
+        _meta.ModMeta(uuid=uuid, folder=folder, name=name, author="t"),
+        mod_path / "meta.lsx",
+    )
+
+    # The Toolkit-baked virtual texture tree. Real-world files we'd
+    # see here (from the WeaponsOfWar reference mod):
+    #   VirtualTextures/<tilesetUUID>.gts            (one tileset blob)
+    #   VirtualTextures/<tilesetUUID>_<hash>.gtp     (tile pages)
+    #   VirtualTextures/<tilesetUUID>_mips.gtp       (mip pages)
+    #   VirtualTextures/Albedo_Normal_Physical/<hash>.gtex
+    gen_vt = (root / "Generated" / "Public" / folder / "VirtualTextures")
+    gen_vt.mkdir(parents=True)
+    tileset_uuid = "ba05d4f3-267c-40db-97b8-0e577f9c566a"
+    gtex_hash = "40ac36e47616fa15b8f5eb1a415a1c16"
+    # Different bytes per mod so a missed-dedup bug would show up.
+    sentinel = name.encode()
+    (gen_vt / f"{tileset_uuid}.gts").write_bytes(b"GTS\x00" + sentinel + b"\x00" * 200)
+    (gen_vt / f"{tileset_uuid}_mips.gtp").write_bytes(b"GTPm" + sentinel + b"\x00" * 100)
+    (gen_vt / f"{tileset_uuid}_{gtex_hash}.gtp").write_bytes(
+        b"GTPx" + sentinel + b"\x00" * 100
+    )
+    (gen_vt / "Albedo_Normal_Physical").mkdir()
+    (gen_vt / "Albedo_Normal_Physical" / f"{gtex_hash}.gtex").write_bytes(
+        b"GTEX" + sentinel + b"\x00" * 50
+    )
+    return root, tileset_uuid
+
+
+def test_generated_virtual_textures_are_copied_to_merged_mod(tmp_path):
+    """The bug that produced black virtual textures in real merged mods:
+    Data/Generated/Public/<mod>/VirtualTextures/*.gts files weren't
+    being walked by the merger at all. They contain the actual tileset
+    binaries the engine streams at runtime, referenced by
+    UUID-as-filename from the VirtualTextureBank.
+
+    After this fix, the merger discovers and copies the entire
+    Generated/Public/<mod>/ tree into Generated/Public/<merged>/.
+    """
+    a_root, tileset_uuid = _make_vt_project_with_generated(tmp_path, "ModA")
+    b_root, _ = _make_vt_project_with_generated(tmp_path, "ModB")
+
+    config = merger.MergeConfig(
+        inputs=[Project.load(a_root), Project.load(b_root)],
+        output_dir=tmp_path / "out",
+        new_uuid=_meta.generate_uuid(),
+        new_folder="MergedVT",
+        new_name="MergedVT",
+        conflict_policy="skip",
+        divine=FakeDivine(),
+    )
+    merger.merge(config)
+
+    # The merged mod must have its own Generated/Public/MergedVT/
+    # VirtualTextures/ directory with the tileset binaries inside.
+    gen_vt = (config.output_dir / "Generated" / "Public" / "MergedVT"
+              / "VirtualTextures")
+    assert gen_vt.is_dir(), (
+        f"Generated/Public/MergedVT/VirtualTextures/ wasn't created. "
+        f"This is the bug that caused black virtual textures: the "
+        f"merger wasn't walking the Generated/ tree at all."
+    )
+
+    # Tileset binary preserved with its original UUID-derived name.
+    # Renaming this would orphan the VTB → on-disk link.
+    assert (gen_vt / f"{tileset_uuid}.gts").is_file()
+    assert (gen_vt / f"{tileset_uuid}_mips.gtp").is_file()
+    # Nested .gtex files too.
+    gtex_files = list((gen_vt / "Albedo_Normal_Physical").glob("*.gtex"))
+    assert gtex_files, "No .gtex files copied to merged mod"
+
+
+def test_gtex_files_categorized_as_virtual_texture_asset(tmp_path):
+    """`.gtex` files (per-texture metadata blobs under
+    Generated/Public/<mod>/VirtualTextures/<channel>/<hash>.gtex)
+    must classify as VIRTUAL_TEXTURE_ASSET so they're copied byte-
+    identical and not put through any text-content remap path."""
+    from core.project import _categorize, FileCategory
+    mod_folder = "TestMod"
+    root = tmp_path
+    file_path = (root / "Generated" / "Public" / mod_folder
+                 / "VirtualTextures" / "Albedo_Normal_Physical"
+                 / "abcdef0123456789.gtex")
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"\x00" * 100)
+    cf = _categorize(file_path, root, mod_folder)
+    assert cf.category == FileCategory.VIRTUAL_TEXTURE_ASSET
+
+
+def test_generated_bucket_assigned_for_files_under_generated_public(tmp_path):
+    """Files under Generated/Public/<mod>/ get bucket='Generated' so
+    the destination translator routes them to the merged mod's matching
+    Generated/Public/ subtree."""
+    from core.project import _categorize
+    mod_folder = "TestMod"
+    root = tmp_path
+    file_path = (root / "Generated" / "Public" / mod_folder
+                 / "VirtualTextures" / "ba05d4f3.gts")
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"\x00")
+    cf = _categorize(file_path, root, mod_folder)
+    assert cf.bucket == "Generated"
+
+
+def test_generated_destination_path_is_correctly_translated(tmp_path):
+    """Confirm Generated/Public/<old>/X.gts maps to
+    Generated/Public/<new>/X.gts in the output."""
+    from core.merger import _destination_for
+    from core.project import Project
+
+    a_root, _ = _make_vt_project_with_generated(tmp_path, "ModA")
+    project = Project.load(a_root)
+    gen_files = [cf for cf in project.files if cf.bucket == "Generated"]
+    assert gen_files, "No files found in Generated bucket - walk is missing"
+
+    cf = gen_files[0]
+    dest = _destination_for(cf, tmp_path / "out", "MergedVT")
+    assert dest is not None
+    # The dest must be under output/Generated/Public/MergedVT/, not
+    # output/Generated/Public/<old_mod>/.
+    parts = dest.relative_to(tmp_path / "out").parts
+    assert parts[0] == "Generated"
+    assert parts[1] == "Public"
+    assert parts[2] == "MergedVT"

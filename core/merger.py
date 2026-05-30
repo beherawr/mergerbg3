@@ -389,7 +389,14 @@ def _merge_in_place(config: MergeConfig) -> MergeResult:
         raise
 
     # Identify which bucket subfolders the merge actually wrote.
-    bucket_subpaths = ("Editor/Mods", "Mods", "Public", "Projects")
+    # Generated/Public is here because virtual-texture data lives ONLY
+    # under that tree; without it the in-place merge would leave a
+    # stale Generated/Public/<old_mod>/ alongside fresh content under
+    # Public/<old_mod>/, and the VTB → on-disk link would still resolve
+    # to the unmerged data.
+    bucket_subpaths = (
+        "Editor/Mods", "Mods", "Public", "Projects", "Generated/Public",
+    )
     active: list[tuple[Path, Path, Path]] = []  # (staging, target, backup)
     for bucket in bucket_subpaths:
         sp = staging / bucket / config.new_folder
@@ -474,7 +481,9 @@ def _prepare_output_dir(config: MergeConfig) -> None:
             raise MergeError(f"output path {od} exists and isn't a directory")
         if not config.allow_existing_output:
             collisions = []
-            for bucket in ("Editor/Mods", "Mods", "Public", "Projects"):
+            for bucket in (
+                "Editor/Mods", "Mods", "Public", "Projects", "Generated/Public",
+            ):
                 target = od / bucket / config.new_folder
                 if target.exists():
                     collisions.append(str(target))
@@ -571,14 +580,24 @@ def _plan_remaps(
     # Folder rename for both inputs.
     new_folder = config.new_folder
     if a.mod_folder_name != new_folder:
-        # Cover the common path forms a Larian file uses:
-        for prefix in ("Public/", "Mods/", "Editor/Mods/", "Projects/"):
+        # Cover the common path forms a Larian file uses. Generated/Public/
+        # is here because anything in a mod's text content that refers
+        # back to baked virtual-texture asset paths will need rewriting
+        # too — even though the VTB itself stores UUIDs (not paths),
+        # other code can legitimately reference Generated/Public/<mod>/.
+        for prefix in (
+            "Public/", "Mods/", "Editor/Mods/", "Projects/",
+            "Generated/Public/",
+        ):
             remap_a.paths.add_substring(
                 f"{prefix}{a.mod_folder_name}",
                 f"{prefix}{new_folder}",
             )
     if b.mod_folder_name != new_folder:
-        for prefix in ("Public/", "Mods/", "Editor/Mods/", "Projects/"):
+        for prefix in (
+            "Public/", "Mods/", "Editor/Mods/", "Projects/",
+            "Generated/Public/",
+        ):
             remap_b.paths.add_substring(
                 f"{prefix}{b.mod_folder_name}",
                 f"{prefix}{new_folder}",
@@ -809,8 +828,18 @@ _RENAME_ON_COLLIDE_CATEGORIES: frozenset[FileCategory] = frozenset({
     FileCategory.ASSET_IMPORT_SETTINGS,  # .xml paired with .gr2/.tif/.dds
     FileCategory.VFX_LSFX,               # visual effects definitions
     FileCategory.BANK_LSF,               # VisualBank/MaterialBank/TextureBank etc.
-    FileCategory.VIRTUAL_TEXTURE_ASSET,  # .gts/.gtp tileset binaries (referenced by path from VTB)
 })
+
+# VIRTUAL_TEXTURE_ASSET (.gts/.gtp/.gtex) is deliberately NOT in the
+# rename-on-collide set even though earlier versions of this list had
+# it there. The Toolkit names these files by UUID or content hash,
+# and the VirtualTextureBank LSF references them by that exact name
+# (TileSetFileName / GTexFileName). Renaming a .gts file orphans the
+# VTB → on-disk link and the affected meshes render BLACK in-game.
+# Two mods that happen to ship files with the same UUID name will
+# have byte-identical content (toolkit-deterministic builds from the
+# same source TIFs), so the implicit dedup of "drop B's copy when A's
+# is already there" is the correct behavior — neither file changes.
 
 # IMAGE_ASSET (mod_publish_logo.png, thumbnail.png) is deliberately NOT in
 # the rename-on-collide set: those are looked up by *fixed path* by the
@@ -1060,9 +1089,10 @@ def _destination_for(
 ) -> Path | None:
     """Translate an input file's path to its output path under ``output_root``.
 
-    For files inside a bucket (Mods, Public, Editor/Mods, Projects), the
-    bucket prefix is preserved and the mod-folder segment is rewritten.
-    Files outside any bucket are skipped (returns None).
+    For files inside a bucket (Mods, Public, Editor/Mods, Projects,
+    Generated/Public), the bucket prefix is preserved and the
+    mod-folder segment is rewritten. Files outside any bucket are
+    skipped (returns None).
     """
     rel = cf.rel_to_project_root
     parts = rel.parts
@@ -1074,6 +1104,9 @@ def _destination_for(
         return output_root / "Editor" / "Mods" / new_folder / Path(*parts[3:])
     if cf.bucket == "Projects" and len(parts) >= 2:
         return output_root / "Projects" / new_folder / Path(*parts[2:])
+    if cf.bucket == "Generated" and len(parts) >= 3:
+        # Generated/Public/<old_mod>/... → Generated/Public/<new_mod>/...
+        return output_root / "Generated" / "Public" / new_folder / Path(*parts[3:])
     return None
 
 

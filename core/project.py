@@ -64,13 +64,22 @@ class FileCategory(Enum):
     # so a merge that renames the mod folder MUST rewrite these paths
     # or virtual textures will appear black in-game.
     VIRTUAL_TEXTURE_BANK = "virtual_texture_bank"
-    # The actual tileset binaries (".gts" tile set + ".gtp" tile page)
-    # under Public/<Folder>/Assets/VirtualTextures/. Referenced by path
-    # from the VirtualTextureBank above. Like TEXTURE_DDS, two mods can
-    # ship identically-named tilesets (the toolkit defaults to a
-    # generated UUID-derived name, but authors sometimes keep the same
-    # "Albedo_Normal_Physical_9.gts" stem), so collisions need rename+
-    # rewrite instead of silently dropping one.
+    # The baked virtual-texture data the Toolkit dumps under
+    # ``Data/Generated/Public/<Folder>/VirtualTextures/`` after the
+    # author runs "Build Virtual Textures":
+    #   - ``.gts``  tile-set binaries (one per tileset)
+    #   - ``.gtp``  tile-page binaries (mips + per-channel pages)
+    #   - ``.gtex`` per-texture metadata blobs
+    # Filenames ARE the identity here — the VirtualTextureBank LSF
+    # references each tileset by its UUID-derived filename
+    # (``TileSetFileName="<UUID>"`` matches ``<UUID>.gts``), and the
+    # toolkit-generated ``GTexFileName`` matches the per-texture
+    # ``.gtex`` hash name. RENAMING ANY OF THESE FILES BREAKS THE
+    # VTB → on-disk link and the game renders the affected meshes
+    # black. So these files must be copied byte-for-byte with their
+    # original names preserved; on filename collision between two
+    # mods the content is byte-identical (toolkit-deterministic for
+    # the same input) so dedup is correct.
     VIRTUAL_TEXTURE_ASSET = "virtual_texture_asset"
     ICON_UV_LSX = "icon_uv_lsx"         # Public/<Folder>/GUI/<Name>_Icons.lsx (or Icons_*.lsx)
     ICON_UV_LSF = "icon_uv_lsf"         # Binary parallel of the above
@@ -232,16 +241,28 @@ class Project:
         if project_meta_path.is_file():
             project_meta = _meta.parse_project_meta_file(project_meta_path)
 
-        # Walk ONLY the 4 mod-specific subtrees. For self-contained
+        # Walk ONLY the mod-specific subtrees. For self-contained
         # projects this catches everything (since the project IS the
         # mod's subtree); for canonical workspaces this correctly
         # excludes files belonging to other mods sharing the same root.
+        #
+        # ``Generated/Public/<mod>/`` is the OUTPUT of the Toolkit's
+        # build pipeline — primarily ``.gts``/``.gtp``/``.gtex``
+        # virtual-texture data plus baked ``.GR2`` model copies. The
+        # game's runtime resolves VirtualTextureBank references
+        # (TileSetFileName + GTexFileName) through this directory. We
+        # need to walk it because if a mod has virtual textures and
+        # the merger doesn't carry the Generated/ tree over to the
+        # merged mod, the VTB ends up pointing at filenames that don't
+        # exist on disk and the game renders the affected meshes
+        # black — even though the VTB itself is correctly merged.
         files: list[CatalogedFile] = []
         mod_subtrees = [
             root / "Editor" / "Mods" / mod_folder_name,
             root / "Mods" / mod_folder_name,
             root / "Public" / mod_folder_name,
             root / "Projects" / mod_folder_name,
+            root / "Generated" / "Public" / mod_folder_name,
         ]
         for subtree in mod_subtrees:
             if not subtree.is_dir():
@@ -327,6 +348,14 @@ def _categorize(
     elif len(parts) >= 2 and parts[0] == "Projects" and parts[1] == mod_folder_name:
         bucket = "Projects"
         rel_under_mod = Path(*parts[2:]) if len(parts) > 2 else Path()
+    elif (len(parts) >= 3 and parts[0] == "Generated"
+          and parts[1] == "Public" and parts[2] == mod_folder_name):
+        # Generated/Public/<mod>/... is the Toolkit's baked-asset
+        # output for one mod. We bucket it as "Generated" so the
+        # merger knows to copy it to the merged mod's matching
+        # Generated/Public/<new_mod>/... location.
+        bucket = "Generated"
+        rel_under_mod = Path(*parts[3:]) if len(parts) > 3 else Path()
 
     # --- Categorize by path pattern -----------------------------------
 
@@ -477,13 +506,21 @@ def _categorize(
             file_path, FileCategory.TEXTURE_TIF, rel, rel_under_mod, bucket,
         )
 
-    # Virtual texture tilesets (.gts) and pages (.gtp) under
-    # Public/<Mod>/Assets/VirtualTextures/. These are large binary
-    # tile-streaming assets referenced BY PATH from the
-    # VirtualTextureBank above, so a collision between two mods'
-    # identically-named tilesets needs rename-and-rewrite (same pattern
-    # as DDS/GR2), not the silent keep-A drop-B that "OTHER" would do.
-    if name.lower().endswith(".gts") or name.lower().endswith(".gtp"):
+    # Virtual texture data the Toolkit bakes into Generated/Public/
+    # <Mod>/VirtualTextures/:
+    #   .gts   — tileset binaries  (one per VirtualTexture resource)
+    #   .gtp   — tile pages        (mip + per-channel data for a tileset)
+    #   .gtex  — per-texture metadata blobs
+    # Filenames ARE the identity: each one's name (a UUID or content
+    # hash) is what the VirtualTextureBank references in its
+    # TileSetFileName / GTexFileName attributes. Renaming any of these
+    # files breaks the VTB → on-disk link and produces black meshes
+    # in-game, so VIRTUAL_TEXTURE_ASSET is NOT in the rename-on-collide
+    # set: collisions between two mods' identically-UUID-named files
+    # mean the content is byte-identical (toolkit-deterministic for
+    # the same source), so verbatim copy with implicit dedup is right.
+    if (name.lower().endswith(".gts") or name.lower().endswith(".gtp")
+            or name.lower().endswith(".gtex")):
         return CatalogedFile(
             file_path, FileCategory.VIRTUAL_TEXTURE_ASSET, rel, rel_under_mod, bucket,
         )

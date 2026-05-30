@@ -495,12 +495,51 @@ def test_policy_page_prefix_field_disabled_unless_prefix_picked(qapp):
 # --- Defaults derived from inputs -------------------------------------------
 
 
-def test_default_folder_strips_uuid_suffix(qapp):
+def test_default_folder_uses_sanitized_display_name_and_full_uuid(qapp):
+    """Default folder name is '<SanitizedDisplayName>_<FullUUID>',
+    derived from 'A.name + B.name' as the implied display name.
+    Anything non-alphanumeric (the '+' and spaces) collapses to a
+    single underscore and the FULL UUID with dashes is appended."""
     a = Project.load(FIXTURES / "ShadowDance")
     b = Project.load(FIXTURES / "Shadowdancer")
-    folder = _default_folder(a, b, "11111111-2222-3333-4444-555555555555")
-    assert folder.startswith("ShadowDance_Plus_Shadowdancer_")
-    assert len(folder.rsplit("_", 1)[-1]) == 8
+    uuid = "11111111-2222-3333-4444-555555555555"
+    folder = _default_folder(a, b, uuid)
+    # Folder ends with the full dashed UUID (not a truncated 8-char hash).
+    assert folder.endswith(f"_{uuid}")
+    # The sanitized-name portion comes from "<a.name> + <b.name>".
+    # The exact A/B display names depend on fixtures, but the format
+    # is "Sanitized_Plus_Sanitized_<uuid>" or similar — we assert the
+    # shape rather than exact contents.
+    name_part = folder[: -(len(uuid) + 1)]
+    assert name_part, "Folder name should have a non-empty name prefix"
+    # No characters that would be illegal as a Windows path component.
+    import re
+    assert re.fullmatch(r"[A-Za-z0-9_]+", name_part), \
+        f"Folder name prefix should only contain [A-Za-z0-9_]: {name_part!r}"
+
+
+def test_sanitize_for_folder_name_collapses_special_chars(qapp):
+    """Verify the sanitizer turns "WeaponsOfWar + FantasyWeapons" into
+    "WeaponsOfWar_FantasyWeapons" — runs of non-alphanumeric become a
+    single underscore and leading/trailing underscores are stripped."""
+    from gui.wizard import _sanitize_for_folder_name
+    assert _sanitize_for_folder_name("WeaponsOfWar + FantasyWeapons") == "WeaponsOfWar_FantasyWeapons"
+    assert _sanitize_for_folder_name("My Mod (v2)!") == "My_Mod_v2"
+    assert _sanitize_for_folder_name("alreadyclean") == "alreadyclean"
+    assert _sanitize_for_folder_name("  spaces  ") == "spaces"
+    assert _sanitize_for_folder_name("!!!") == ""
+    assert _sanitize_for_folder_name("") == ""
+
+
+def test_derive_folder_name_falls_back_when_display_name_empty(qapp):
+    """If the user clears the display name or types only special
+    characters, the folder must still be a valid identifier (we use
+    'Mod' as the fallback prefix)."""
+    from gui.wizard import _derive_folder_name
+    uuid = "abcdef01-2345-6789-abcd-ef0123456789"
+    assert _derive_folder_name("", uuid) == f"Mod_{uuid}"
+    assert _derive_folder_name("!!!", uuid) == f"Mod_{uuid}"
+    assert _derive_folder_name("My Mod", uuid) == f"My_Mod_{uuid}"
 
 
 def test_default_author_unifies_when_same(qapp):
