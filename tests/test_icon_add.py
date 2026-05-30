@@ -323,18 +323,193 @@ class TestAtlasFamily:
         ]:
             assert not stale.exists(), f"old/wrong file should not exist: {stale}"
 
-    def test_no_texturebank_written(self, tmp_path):
-        """Neither nightb nor mysticw has a TextureBank _merged.lsf.lsx.
-        The old code wrote one; we now don't."""
+    def test_texturebank_written_at_per_atlas_path(self, tmp_path):
+        """Cross-checked against nightb and mysticw: each atlas ships a
+        TextureBank Resource entry at
+        Public/<mod>/Content/[PAK]_<folder>/<atlas_uuid>.lsf.lsx,
+        named by the atlas UUID. Without this the toolkit warns about a
+        dangling atlas UUID and in-game inventory slots render blank.
+
+        We use [PAK]_Icons_<mod> as the deterministic folder name. The
+        folder name itself doesn't matter to the engine; what matters
+        is the file existing under SOME [PAK]_* folder in Content/."""
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 400)
         icon_add.add_icon(
             data_root=data_root, mod_folder="TestMod",
             icon_name="X", icon_type="Spell / Skill", png_path=png,
         )
-        tb = (data_root / "Public" / "TestMod" / "Content" / "UI"
-              / "[PAK]_UI" / "_merged.lsf.lsx")
-        assert not tb.exists()
+
+        # The TB file lives at Content/[PAK]_Icons_TestMod/<uuid>.lsf.lsx.
+        # We don't know the UUID up front, so glob for it.
+        tb_dir = (data_root / "Public" / "TestMod" / "Content"
+                  / "[PAK]_Icons_TestMod")
+        assert tb_dir.is_dir(), "Per-atlas TextureBank folder missing"
+        tb_files = sorted(tb_dir.glob("*.lsf.lsx"))
+        assert len(tb_files) == 1, \
+            f"Expected exactly one TextureBank LSX, got {tb_files}"
+
+        # The TB file's stem MUST match the atlas LSX's TextureAtlasPath UUID.
+        # That's the link that makes "Resource with UUID X" resolve in
+        # the toolkit and the live game's inventory renderer.
+        atlas_lsx = data_root / "Public" / "TestMod" / "GUI" / "Icons_TestMod.lsx"
+        atlas_doc = lsx.parse_file(atlas_lsx)
+        info = atlas_doc.region("TextureAtlasInfo")
+        path_node = next(n for n in _iter(info.root_node)
+                         if n.id == "TextureAtlasPath")
+        atlas_uuid = next(a.value for a in path_node.attributes
+                          if a.id == "UUID")
+        assert tb_files[0].name == f"{atlas_uuid}.lsf.lsx"
+
+    def test_texturebank_resource_id_matches_atlas_uuid(self, tmp_path):
+        """The Resource node inside the TextureBank LSX must use the
+        atlas UUID as its ID attribute (it's how the engine resolves a
+        TextureAtlasPath.UUID lookup to a concrete DDS source file)."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 400)
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
+        )
+        tb_dir = (data_root / "Public" / "TestMod" / "Content"
+                  / "[PAK]_Icons_TestMod")
+        tb_lsx = next(tb_dir.glob("*.lsf.lsx"))
+        tb_doc = lsx.parse_file(tb_lsx)
+        region = tb_doc.region("TextureBank")
+        assert region is not None
+        resource = next(n for n in _iter(region.root_node)
+                        if n.id == "Resource")
+        tb_id = next(a.value for a in resource.attributes if a.id == "ID")
+        # tb_lsx.name is e.g. '<uuid>.lsf.lsx'; .stem strips only ONE
+        # extension, leaving '<uuid>.lsf'. We want bare '<uuid>'.
+        uuid_part = tb_lsx.name.split(".")[0]
+        assert tb_id == uuid_part, \
+            f"Resource.ID ({tb_id}) doesn't match filename ({uuid_part})"
+
+    def test_texturebank_sourcefile_uses_full_mod_path(self, tmp_path):
+        """Cross-checked against nightb and mysticw: TextureBank
+        SourceFile is the FULL mod-relative path
+        (``Public/<mod>/Assets/Textures/Icons/newAtlas.dds``), not the
+        Assets/-relative form the atlas LSX uses. Two different
+        conventions for the same DDS, and they must match what the
+        toolkit/engine expects per-file."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 400)
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
+        )
+        tb_lsx = next((data_root / "Public" / "TestMod" / "Content"
+                       / "[PAK]_Icons_TestMod").glob("*.lsf.lsx"))
+        tb_doc = lsx.parse_file(tb_lsx)
+        resource = next(n for n in _iter(tb_doc.region("TextureBank").root_node)
+                        if n.id == "Resource")
+        src = next(a.value for a in resource.attributes if a.id == "SourceFile")
+        assert src == "Public/TestMod/Assets/Textures/Icons/newAtlas.dds"
+
+    def test_texturebank_schema_matches_reference_mods(self, tmp_path):
+        """Schema details that the engine cares about:
+          - ID type=FixedString, Name type=LSString
+          - Width/Height/Depth/Type all int32 (not int64)
+          - SRGB=False (icon atlases store linear; the shader handles sRGB)
+          - Streaming=True
+          - Type=1 (UI texture; 0 is a different kind entirely)
+          - Width/Height match the actual DDS (512), Depth=1 (2D)"""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 400)
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
+        )
+        tb_lsx = next((data_root / "Public" / "TestMod" / "Content"
+                       / "[PAK]_Icons_TestMod").glob("*.lsf.lsx"))
+        tb_doc = lsx.parse_file(tb_lsx)
+        resource = next(n for n in _iter(tb_doc.region("TextureBank").root_node)
+                        if n.id == "Resource")
+        attrs = {a.id: (a.type, a.value) for a in resource.attributes}
+        assert attrs["ID"][0] == "FixedString"
+        assert attrs["Name"][0] == "LSString"
+        assert attrs["SourceFile"][0] == "LSString"
+        assert attrs["Template"][0] == "FixedString"
+        for size_attr in ("Width", "Height", "Depth", "Type"):
+            assert attrs[size_attr][0] == "int32", \
+                f"{size_attr} should be int32, got {attrs[size_attr][0]}"
+        assert attrs["Streaming"] == ("bool", "True")
+        assert attrs["SRGB"] == ("bool", "False")
+        assert attrs["Type"][1] == "1"
+        assert attrs["Width"][1] == "512"
+        assert attrs["Height"][1] == "512"
+        assert attrs["Depth"][1] == "1"
+
+    def test_texturebank_name_matches_atlas_dds_stem(self, tmp_path):
+        """Name and Template both equal the atlas DDS stem (e.g.
+        'newAtlas' for newAtlas.dds, 'newAtlas_2' for the overflow
+        atlas). nightb uses 'newAtlas'; mysticw uses 'ArcaneVanguardAtlas'
+        for its renamed atlas — Name follows the DDS file."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 400)
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="X", icon_type="Spell / Skill", png_path=png,
+        )
+        tb_lsx = next((data_root / "Public" / "TestMod" / "Content"
+                       / "[PAK]_Icons_TestMod").glob("*.lsf.lsx"))
+        tb_doc = lsx.parse_file(tb_lsx)
+        resource = next(n for n in _iter(tb_doc.region("TextureBank").root_node)
+                        if n.id == "Resource")
+        attrs = {a.id: a.value for a in resource.attributes}
+        assert attrs["Name"] == "newAtlas"
+        assert attrs["Template"] == "newAtlas"
+
+    def test_overflow_atlas_gets_its_own_texturebank_entry(self, tmp_path):
+        """When a 65th icon overflows into newAtlas_2.dds, that second
+        atlas needs its OWN TextureBank entry (separate UUID, separate
+        Name='newAtlas_2'). Otherwise the engine streamer doesn't know
+        the second atlas exists."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 100)
+        # Fill first atlas (64 icons).
+        for i in range(64):
+            icon_add.add_icon(
+                data_root=data_root, mod_folder="TestMod",
+                icon_name=f"Icon{i:02d}", icon_type="Spell / Skill", png_path=png,
+            )
+        # 65th icon: should produce a SECOND TextureBank entry.
+        icon_add.add_icon(
+            data_root=data_root, mod_folder="TestMod",
+            icon_name="Overflow", icon_type="Spell / Skill", png_path=png,
+        )
+        tb_dir = (data_root / "Public" / "TestMod" / "Content"
+                  / "[PAK]_Icons_TestMod")
+        tb_files = sorted(tb_dir.glob("*.lsf.lsx"))
+        assert len(tb_files) == 2, \
+            f"Expected two TextureBank LSX files (one per atlas), got: {tb_files}"
+        # Confirm one of them is for the overflow atlas (Name='newAtlas_2').
+        names = set()
+        for tb_lsx in tb_files:
+            tb_doc = lsx.parse_file(tb_lsx)
+            resource = next(n for n in _iter(tb_doc.region("TextureBank").root_node)
+                            if n.id == "Resource")
+            attrs = {a.id: a.value for a in resource.attributes}
+            names.add(attrs["Name"])
+        assert names == {"newAtlas", "newAtlas_2"}
+
+    def test_readd_does_not_proliferate_texturebank_files(self, tmp_path):
+        """Adding multiple icons to the same atlas must not create
+        duplicate TextureBank entries — only ONE TB Resource exists
+        per atlas no matter how many icons land in it."""
+        data_root = _mod_skeleton(tmp_path)
+        png = _make_png(tmp_path / "src.png", 100)
+        for i in range(5):
+            icon_add.add_icon(
+                data_root=data_root, mod_folder="TestMod",
+                icon_name=f"Icon{i}", icon_type="Spell / Skill", png_path=png,
+            )
+        tb_dir = (data_root / "Public" / "TestMod" / "Content"
+                  / "[PAK]_Icons_TestMod")
+        tb_files = sorted(tb_dir.glob("*.lsf.lsx"))
+        assert len(tb_files) == 1, \
+            f"Should be one TB per atlas, got: {tb_files}"
 
     def test_second_icon_appends_to_atlas(self, tmp_path):
         data_root = _mod_skeleton(tmp_path)

@@ -571,6 +571,38 @@ def _atlas_uv_lsf_path(data_root: Path, mod_folder: str, atlas_index: int = 1) -
     return _atlas_uv_lsx_path(data_root, mod_folder, atlas_index).with_suffix(".lsf")
 
 
+def _texturebank_path(
+    data_root: Path, mod_folder: str, atlas_uuid: str, ext: str,
+) -> Path:
+    """The TextureBank registry for one atlas. Each atlas needs a
+    matching TextureBank Resource entry under
+    ``Public/<mod>/Content/[PAK]_Icons_<mod>/<atlas_uuid>.lsf{.lsx}``.
+
+    Without this file, the atlas's UUID is "dangling": the
+    ``TextureAtlasPath.UUID`` in the icon LSX has no corresponding
+    Resource in any TextureBank. The toolkit warns about this with
+    "Resource with UUID ... not found for texture ... in texture
+    atlas". The tooltip system can sometimes still resolve the DDS
+    by walking the LSX directly, but the inventory rendering pipeline
+    expects the texture to come from a TextureBank entry, so without
+    one the inventory slot renders blank even though the tooltip
+    shows the icon.
+
+    Cross-checked against nightb (which keeps these in
+    [PAK]_CharacterVisuals) and mysticw (which uses a randomly-named
+    [PAK]_Generated_<guid>). The folder name itself doesn't matter
+    to the engine - it's just a packaging hint - so we use a stable
+    deterministic name ``[PAK]_Icons_<mod>`` so re-runs of the tool
+    don't pile up new folders. The file basename MUST be the atlas's
+    UUID so the engine can index it by ID.
+
+    ``ext`` is one of ``"lsf"`` (binary, what the game reads) or
+    ``"lsf.lsx"`` (text, what the toolkit can also read).
+    """
+    return (data_root / "Public" / mod_folder / "Content"
+            / f"[PAK]_Icons_{mod_folder}" / f"{atlas_uuid}.{ext}")
+
+
 def _slot_to_pixel(slot: int) -> tuple[int, int]:
     """Slot index → top-left pixel of that tile within the atlas DDS."""
     row, col = divmod(slot, GRID)
@@ -680,6 +712,70 @@ def _iter_nodes(node: lsx.Node):
         n = stack.pop()
         yield n
         stack.extend(n.children)
+
+
+def _new_texturebank_lsx(
+    atlas_uuid: str, atlas_name: str, source_file: str,
+) -> lsx.LsxDocument:
+    """Build a TextureBank LSX that registers one atlas DDS with the
+    BG3 asset streamer.
+
+    Cross-checked byte-for-byte against the TextureBank files shipped
+    by nightb (Content/[PAK]_CharacterVisuals/<atlas_uuid>.lsf.lsx) and
+    mysticw (Content/[PAK]_Generated_<guid>/<atlas_uuid>.lsf.lsx). Both
+    use this exact schema, which differs from the atlas LSX schema in
+    several ways the toolkit cares about:
+
+      - Header is ``major="4" minor="7" revision="1" build="3"`` with
+        ``lslib_meta="v1,bswap_guids,lsf_keys_adjacency"`` (atlas LSX
+        uses major=4 minor=8 build=400 with no lslib_meta).
+      - Encoding is lowercase ``"utf-8"`` (atlas LSX is uppercase).
+      - The whole file has a UTF-8 BOM, tab indent, and CRLF endings.
+        Our serializer normalizes to LF + 4-space, which the toolkit
+        still accepts.
+
+    Schema details (mismatching any of these blanks the inventory icon
+    in-game while the tooltip still shows it, because the inventory
+    streamer rejects malformed bank entries):
+
+      - ``ID``: the atlas UUID (matches ``TextureAtlasPath.UUID`` from
+        the atlas LSX). This is the link between the two files.
+      - ``Name`` / ``Template``: both the atlas's stem (e.g.
+        ``"newAtlas"``). They're literal strings, not UUIDs.
+      - ``SourceFile``: FULL ``Public/<mod>/Assets/Textures/Icons/
+        <atlas>.dds`` path (not mod-relative like the atlas LSX uses).
+      - ``Type``: ``int32`` 1 (zero would mean a different texture
+        kind; UI atlases are type 1).
+      - ``SRGB``: ``False`` (icon atlases store linear data because
+        the UI's icon shader handles sRGB conversion itself).
+      - ``Width`` / ``Height``: 512 / 512 — must match the actual DDS.
+      - ``Depth``: 1 (this is a 2D texture, not a 3D volume texture).
+      - ``Streaming``: ``True`` (the engine pages tiles in and out).
+    """
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<save>
+    <version major="4" minor="7" revision="1" build="3" lslib_meta="v1,bswap_guids,lsf_keys_adjacency"/>
+    <region id="TextureBank">
+        <node id="TextureBank">
+            <children>
+                <node id="Resource">
+                    <attribute id="ID" type="FixedString" value="{atlas_uuid}"/>
+                    <attribute id="Name" type="LSString" value="{atlas_name}"/>
+                    <attribute id="SourceFile" type="LSString" value="{source_file}"/>
+                    <attribute id="Template" type="FixedString" value="{atlas_name}"/>
+                    <attribute id="Streaming" type="bool" value="True"/>
+                    <attribute id="Type" type="int32" value="1"/>
+                    <attribute id="SRGB" type="bool" value="False"/>
+                    <attribute id="Width" type="int32" value="{ATLAS_PX}"/>
+                    <attribute id="Height" type="int32" value="{ATLAS_PX}"/>
+                    <attribute id="Depth" type="int32" value="1"/>
+                </node>
+            </children>
+        </node>
+    </region>
+</save>
+"""
+    return lsx.parse_bytes(xml.encode("utf-8"))
 
 
 def _read_existing_full_uv(uv_path: Path) -> tuple[lsx.LsxDocument | None, dict[str, int], set[int], str | None]:
@@ -837,6 +933,89 @@ def _write_atlas_uv_files(
     (result.files_updated if lsf_existed else result.files_written).append(lsf_path)
 
 
+def _write_texturebank_files(
+    data_root: Path, mod_folder: str, atlas_uuid: str, atlas_name: str,
+    atlas_dds_path: Path, divine_path: str | None, result: IconAddResult,
+) -> None:
+    """Write the TextureBank pair (lsf.lsx + lsf) that registers an
+    atlas with the BG3 asset streamer.
+
+    Without this, the atlas DDS exists on disk and the icon UV map
+    references its UUID, but no TextureBank Resource defines what that
+    UUID actually IS. In-game, the tooltip system can sometimes still
+    resolve the DDS via the icon LSX, but the inventory rendering
+    pipeline goes through the TextureBank and shows a blank slot when
+    the entry is missing. The toolkit also surfaces this with a
+    "Resource with UUID ... not found for texture ... in texture
+    atlas" warning.
+
+    Idempotent: if the file already exists with the same UUID, we leave
+    it alone. Re-running icon-add on the same mod doesn't proliferate
+    duplicate TextureBank entries.
+
+    Writes both LSX text form (so the toolkit can still read it without
+    divine) and LSF binary form (what the game's runtime reads).
+    """
+    lsx_path = _texturebank_path(data_root, mod_folder, atlas_uuid, "lsf.lsx")
+    lsf_path = _texturebank_path(data_root, mod_folder, atlas_uuid, "lsf")
+
+    # Idempotency: if both forms already exist we're done. The TB
+    # contents are derivable from inputs - if the LSX is on disk it
+    # already says what we'd write.
+    if lsx_path.exists() and lsf_path.exists():
+        result.notes.append(
+            f"TextureBank for atlas {atlas_name} already exists at "
+            f"{lsx_path.parent.name}/{lsx_path.name}; left unchanged."
+        )
+        return
+
+    # Build the document. SourceFile uses the full mod-relative form,
+    # not the Assets/-relative form (that's how nightb and mysticw
+    # have it, even though it would be redundant relative to the
+    # mod's own folder name - the game expects the full path).
+    source_file = (f"Public/{mod_folder}/Assets/Textures/Icons/"
+                   f"{atlas_dds_path.name}")
+    tb_doc = _new_texturebank_lsx(atlas_uuid, atlas_name, source_file)
+
+    lsx_existed = lsx_path.exists()
+    lsf_existed = lsf_path.exists()
+    _ensure_parent(lsx_path)
+    lsx.write_file(tb_doc, lsx_path)
+    (result.files_updated if lsx_existed else result.files_written).append(lsx_path)
+
+    try:
+        divine_exe = divine_mod.find_divine(divine_path)
+    except divine_mod.DivineNotFoundError:
+        if divine_path:
+            result.notes.append(
+                f"TextureBank LSX written ({lsx_path.name}) but the "
+                f"binary form was NOT written. The divine.exe path in "
+                f"Settings ({divine_path!r}) doesn't resolve to an "
+                f"existing file. Without the .lsf, in-game inventory "
+                f"slots will show blank icons even though tooltips "
+                f"render correctly."
+            )
+        else:
+            result.notes.append(
+                f"TextureBank LSX written ({lsx_path.name}) but the "
+                f"binary form was NOT written because divine.exe "
+                f"isn't configured. In-game inventory slots will show "
+                f"blank icons until the LSF exists; tooltips will "
+                f"still render. Set divine.exe in Settings and re-add."
+            )
+        return
+
+    try:
+        d = divine_mod.Divine(exe_path=divine_exe)
+        d.lsx_to_lsf(lsx_path, lsf_path)
+    except divine_mod.DivineError as e:
+        raise IconAddError(
+            f"divine.exe failed converting TextureBank LSX to LSF: {e}"
+        ) from e
+
+    (result.files_updated if lsf_existed else result.files_written).append(lsf_path)
+
+
 def _add_atlas_icon(
     data_root: Path, mod_folder: str, icon_name: str, spec: IconTypeSpec,
     src: Image.Image, result: IconAddResult,
@@ -951,6 +1130,18 @@ def _add_atlas_icon(
         uv_doc = _new_full_uv_lsx(relative_dds, atlas_uuid)
     _append_uv_node_in_region(uv_doc, "IconUVList", icon_name, slot)
     _write_atlas_uv_files(uv_doc, atlas_lsx_path, atlas_lsf_path, divine_path, result)
+
+    # --- 3c. TextureBank: registers the atlas DDS with the asset
+    # streamer. Without this, the toolkit warns about a "dangling"
+    # atlas UUID and in-game inventory slots render blank even when
+    # tooltips show the icon correctly. atlas_name is the DDS stem
+    # ('newAtlas' for the first atlas, 'newAtlas_2' for the second,
+    # ...), matching the Name/Template fields nightb and mysticw use.
+    atlas_name = atlas_dds_path.stem
+    _write_texturebank_files(
+        data_root, mod_folder, atlas_uuid, atlas_name,
+        atlas_dds_path, divine_path, result,
+    )
 
     # --- 4. Register all the Mods/-side files in metadata.lsf ---
     _register_in_metadata(data_root, mod_folder, metadata_entries, divine_path, result)

@@ -110,7 +110,9 @@ def test_wizard_constructs_with_seven_pages(qapp):
     """The redesigned wizard has 7 pages: workspace, selection, identity,
     policy, review, run, result."""
     w = MergeWizard()
-    assert w.windowTitle() == "| BG3 Mod Merger | by For_Kiramay |"
+    # Title has leading spaces to keep Windows from clipping the
+    # trailing "|" with the close button.
+    assert w.windowTitle() == "    | BG3 Mod Merger | by For_Kiramay |"
     assert len(w.pageIds()) == 7
     # With clean settings (the autouse isolation fixture gives every
     # test an empty file), the workspace isn't configured yet: first
@@ -238,7 +240,6 @@ def test_workspace_page_saves_to_settings_on_validate(qapp, tmp_path, monkeypatc
     state = WizardState(settings=app_settings.Settings())
     page = WorkspacePage(state)
     page.workspace_edit.setText(str(tmp_path))
-    page.divine_edit.setText("")
 
     assert page.validatePage() is True
     assert state.settings.workspace_dir == str(tmp_path)
@@ -247,33 +248,34 @@ def test_workspace_page_saves_to_settings_on_validate(qapp, tmp_path, monkeypatc
     assert reloaded["workspace_dir"] == str(tmp_path)
 
 
-def test_workspace_page_warns_on_bad_divine_path(qapp, tmp_path, monkeypatch):
-    """A non-existent divine.exe path triggers a confirmation; declining
-    returns False from validatePage."""
-    state = WizardState(settings=app_settings.Settings())
+def test_workspace_page_preserves_divine_override_through_validate(qapp, tmp_path, monkeypatch):
+    """The divine path UI was removed (LSLib is bundled), but the
+    settings field still exists and is honoured by the runtime when
+    set. A power user who edits settings.json directly must NOT have
+    their override silently wiped just by walking through the wizard."""
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr(app_settings, "SETTINGS_PATH", settings_file)
+
+    state = WizardState(settings=app_settings.Settings(
+        divine_path="/my/custom/divine.exe",
+    ))
     page = WorkspacePage(state)
     page.workspace_edit.setText(str(tmp_path))
-    page.divine_edit.setText("/does/not/exist.exe")
 
-    original = QMessageBox.question
-    QMessageBox.question = lambda *a, **kw: QMessageBox.No
-    try:
-        assert page.validatePage() is False
-    finally:
-        QMessageBox.question = original
+    assert page.validatePage() is True
+    assert state.settings.divine_path == "/my/custom/divine.exe"
 
 
 def test_workspace_page_initializes_from_settings(qapp, tmp_path):
-    """Returning users see their saved paths pre-filled."""
+    """Returning users see their saved workspace pre-filled."""
     settings = app_settings.Settings(
         workspace_dir=str(tmp_path),
-        divine_path="/tools/divine.exe",
+        divine_path="/tools/divine.exe",  # set but no longer surfaced in UI
     )
     state = WizardState(settings=settings)
     page = WorkspacePage(state)
     page.initializePage()
     assert page.workspace_edit.text() == str(tmp_path)
-    assert page.divine_edit.text() == "/tools/divine.exe"
 
 
 # --- SelectionPage ----------------------------------------------------------

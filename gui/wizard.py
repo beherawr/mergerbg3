@@ -167,57 +167,31 @@ class WorkspacePage(QWizardPage):
         form.addRow("Data folder:", ws_widget)
 
         ws_hint = QLabel(
-            "<i>Your Data folder should contain your project subdirectories "
-            "(each with Editor/, Mods/, Projects/, Public/ underneath). "
-            "The wizard will scan it for mods you can merge.</i>"
+            "<i>The wizard will scan your Data folder for mods.</i>"
         )
         ws_hint.setWordWrap(True)
         form.addRow("", ws_hint)
 
-        # --- divine.exe path (optional, since LSLib is now bundled) ---
-        self.divine_edit = QLineEdit()
-        self.divine_edit.setPlaceholderText(
-            "Optional: leave empty to use the bundled LSLib (recommended)"
-        )
-        div_browse = QPushButton("Browse…")
-        div_browse.clicked.connect(self._browse_divine)
-        # Live "Test" button: runs find_divine against the current
-        # field text and reports the exact result. Users who had divine
-        # configured but were still seeing "not configured" warnings
-        # had no way to see WHAT the runtime saw - the field looked
-        # right but the resolved path failed. This button shows the
-        # raw text, the normalized form (quotes stripped, whitespace
-        # trimmed), and whether find_divine resolved it. If a quick
-        # version-check succeeds it also confirms the file really is
-        # divine.exe and not e.g. a stale copy of a different tool.
-        div_test = QPushButton("Test")
+        # --- LSLib diagnostic (LSLib is bundled, no path field needed) ---
+        # Earlier releases had a path field here for divine.exe so users
+        # could point at their own LSLib install. We bundle LSLib now,
+        # so the field was just cognitive noise: nobody had to fill it
+        # in, but it was visible and prompted questions. Removed in
+        # favour of one button that diagnoses the bundled copy. If
+        # someone genuinely needs to override the bundled LSLib, they
+        # can edit settings.json directly; the code path still reads
+        # settings.divine_path when it's non-empty.
+        div_test = QPushButton("Test bundled LSLib (.NET 8 required)")
         div_test.setToolTip(
-            "Check whether divine.exe is reachable with the current path"
+            "Check that the bundled divine.exe is reachable and that "
+            ".NET 8 Desktop Runtime is installed."
         )
         div_test.clicked.connect(self._test_divine)
-        div_row = QHBoxLayout()
-        div_row.addWidget(self.divine_edit, 1)
-        div_row.addWidget(div_browse)
-        div_row.addWidget(div_test)
-        div_widget = QWidget()
-        div_widget.setLayout(div_row)
-        form.addRow("divine.exe path:", div_widget)
-
-        div_hint = QLabel(
-            "<i>LSLib is bundled with this app, so you usually don't need to "
-            "set this. Requires <a href='https://dotnet.microsoft.com/"
-            "en-us/download/dotnet/8.0/runtime'>.NET 8 Desktop Runtime</a> "
-            "to be installed. Override above to point at a different "
-            "LSLib build. Click Test to verify it's working.</i>"
-        )
-        div_hint.setOpenExternalLinks(True)
-        div_hint.setWordWrap(True)
-        form.addRow("", div_hint)
+        form.addRow("", div_test)
 
     def initializePage(self) -> None:
         """Restore from settings so returning users don't have to refill."""
         self.workspace_edit.setText(self.state.settings.workspace_dir)
-        self.divine_edit.setText(self.state.settings.divine_path)
 
     def _browse_workspace(self) -> None:
         start = self.state.settings.workspace_dir or str(Path.home())
@@ -226,23 +200,6 @@ class WorkspacePage(QWizardPage):
         )
         if chosen:
             self.workspace_edit.setText(chosen)
-
-    def _browse_divine(self) -> None:
-        # Different OS conventions: on Windows we want a .exe; elsewhere
-        # any executable works. We don't restrict the filter; the user
-        # might have it under any name.
-        start = (
-            self.state.settings.divine_path
-            or self.state.settings.workspace_dir
-            or str(Path.home())
-        )
-        # Use the file dialog rather than directory dialog.
-        chosen, _ = QFileDialog.getOpenFileName(
-            self, "Pick divine.exe", start,
-            "Executable files (*.exe);;All files (*)"
-        )
-        if chosen:
-            self.divine_edit.setText(chosen)
 
     def _test_divine(self) -> None:
         """Run the same divine-resolution path the runtime uses and show
@@ -261,25 +218,24 @@ class WorkspacePage(QWizardPage):
              download page instead of leaving them with a cryptic
              "command failed" error.
         """
-        raw = self.divine_edit.text()
-        # Capture in repr to expose invisible chars (CRLF / BOM /
-        # zero-width). Strip a single pair of surrounding quotes if
-        # present, the way find_divine does at runtime.
-        stripped = raw.strip()
+        # The UI no longer has a divine path field — LSLib is bundled.
+        # We still honour settings.divine_path for advanced users who
+        # edit settings.json directly to override the bundled copy,
+        # which is why this isn't hardcoded to None.
+        raw = (self.state.settings.divine_path or "").strip()
+        stripped = raw
         normalized = stripped
         if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in ('"', "'"):
             normalized = normalized[1:-1].strip()
 
         report_lines: list[str] = []
         if raw:
-            report_lines.append(f"Raw field text:  {raw!r}")
-            if stripped != raw:
-                report_lines.append(f"After .strip():  {stripped!r}")
+            report_lines.append(f"Override path:   {raw!r}")
             if normalized != stripped:
                 report_lines.append(f"Quotes stripped: {normalized!r}")
         else:
             report_lines.append(
-                "(Settings field is empty — testing the bundled "
+                "(No override configured — testing the bundled "
                 "copy of LSLib that ships with this app.)"
             )
 
@@ -425,44 +381,13 @@ class WorkspacePage(QWizardPage):
     def validatePage(self) -> bool:
         """Save to settings on Next."""
         ws = self.workspace_edit.text().strip()
-        dv_raw = self.divine_edit.text().strip()
-
-        # Strip a single pair of surrounding quotes, the way find_divine
-        # does at runtime. Without this, users who pasted from Windows
-        # "Copy as path" would persist a quoted path here, and although
-        # find_divine handled the quotes at conversion time, the
-        # validation prompt below incorrectly reported the path didn't
-        # exist (Path('"C:/...".is_file()') is always False).
-        dv = dv_raw
-        if len(dv) >= 2 and dv[0] == dv[-1] and dv[0] in ('"', "'"):
-            dv = dv[1:-1].strip()
-
-        if dv:
-            # Validate with the same normalization the runtime uses, not
-            # a bare Path.is_file() check. find_divine handles whitespace,
-            # quotes, and falls back to PATH lookup if the explicit path
-            # doesn't exist; matching it here means the Settings prompt
-            # agrees with what add_icon / merger will actually see.
-            from core.divine import find_divine, DivineNotFoundError
-            try:
-                resolved = find_divine(dv)
-            except DivineNotFoundError:
-                ok = QMessageBox.question(
-                    self, "divine.exe not found",
-                    f"{dv!r} doesn't resolve to an existing file. "
-                    f"\n\nIf you pasted from Windows 'Copy as path', "
-                    f"the surrounding quotes have been removed for you. "
-                    f"Check for typos, that the file hasn't been moved, "
-                    f"and that the path points to divine.exe itself "
-                    f"(not its folder).\n\n"
-                    f"Use this path anyway?",
-                    QMessageBox.Yes | QMessageBox.No,
-                )
-                if ok != QMessageBox.Yes:
-                    return False
-
         self.state.settings.workspace_dir = ws
-        self.state.settings.divine_path = dv
+        # divine_path is no longer settable from the UI (LSLib is
+        # bundled). We leave whatever was previously stored in settings
+        # alone, so a power user who edits settings.json to point at a
+        # custom LSLib build doesn't have it silently wiped just by
+        # going through the wizard. The runtime still respects the
+        # override when present.
         # Persist immediately so even if the user closes the wizard
         # without finishing a merge, the next launch remembers.
         app_settings.save(self.state.settings)
@@ -1731,7 +1656,12 @@ class MergeWizard(QWizard):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("| BG3 Mod Merger | by For_Kiramay |")
+        # Leading spaces are intentional: on Windows the title-bar text
+        # is rendered to the right of the system icon, and depending on
+        # font/DPI the leading character can get partially clipped by
+        # the icon's padding. Padding the start of the string shifts
+        # the visible text right so the opening "|" stays fully visible.
+        self.setWindowTitle("    | BG3 Mod Merger | by For_Kiramay |")
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
 
