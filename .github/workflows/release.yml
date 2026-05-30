@@ -42,6 +42,44 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller PySide6 lxml Pillow pytest
 
+      - name: Download LSLib and unpack into vendor/lslib/
+        # LSLib is Norbyte's library + divine.exe CLI. We ship it
+        # alongside the .exe so virtual-texture merging, icon LSF
+        # generation, and metadata.lsf round-tripping work out of the
+        # box without the user installing anything except .NET 8.
+        #
+        # If LSLib's release zip layout changes (today: the assets are
+        # the build artifacts directly, no nested directory), this step
+        # needs an updated 'lslib_url' or extraction tweak.
+        run: |
+          $lslib_url = "https://github.com/Norbyte/lslib/releases/download/v1.19.5/ExportTool-v1.19.5.zip"
+          $zip_path = "lslib.zip"
+          $vendor_dir = "vendor/lslib"
+          Write-Host "Downloading LSLib from $lslib_url"
+          Invoke-WebRequest -Uri $lslib_url -OutFile $zip_path -UseBasicParsing
+          New-Item -ItemType Directory -Force -Path $vendor_dir | Out-Null
+          # Extract everything into vendor/lslib/. The zip contains a
+          # nested "Tools" folder; we flatten it so divine.exe lives at
+          # vendor/lslib/divine.exe (matching the runtime layout).
+          Expand-Archive -Path $zip_path -DestinationPath "lslib_unpacked" -Force
+          # Find divine.exe wherever it landed and copy the whole folder
+          # contents to vendor/lslib/.
+          $divine = Get-ChildItem -Path "lslib_unpacked" -Recurse -Filter "divine.exe" |
+                    Select-Object -First 1
+          if (-not $divine) {
+            Write-Error "divine.exe not found in extracted LSLib zip"
+            exit 1
+          }
+          Write-Host "Found divine.exe at $($divine.FullName)"
+          Copy-Item -Path "$($divine.Directory.FullName)/*" -Destination $vendor_dir -Recurse -Force
+          # Sanity: confirm the file ended up where the spec expects it.
+          if (-not (Test-Path "$vendor_dir/divine.exe")) {
+            Write-Error "divine.exe not at $vendor_dir/divine.exe after copy"
+            exit 1
+          }
+          Get-ChildItem $vendor_dir | Select-Object Name, Length | Format-Table
+        shell: pwsh
+
       # NOTE: no `pytest tests/` step here.
       # The test suite depends on private fixture mods that are NOT
       # checked into the public repo (they're real shared community

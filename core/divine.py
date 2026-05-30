@@ -80,6 +80,68 @@ class DivineError(RuntimeError):
         )
 
 
+class DotNetMissingError(RuntimeError):
+    """Raised when divine.exe cannot start because .NET 8 isn't installed.
+
+    LSLib v1.20+ requires the .NET 8 Desktop Runtime. When it's missing,
+    Windows reports the failure in several different ways depending on
+    OS version: stderr contains "framework" / "runtime not found" text,
+    OR subprocess raises OSError WinError 1114/216, OR divine exits
+    with code 0x80008096 (-2147450746). We catch all three.
+
+    The user-facing fix is always the same: install .NET 8 Desktop
+    Runtime from Microsoft. We surface a direct download link.
+    """
+
+    DOWNLOAD_URL = (
+        "https://dotnet.microsoft.com/en-us/download/dotnet/8.0/"
+        "runtime"
+    )
+
+    def __init__(self, detail: str = ""):
+        msg = (
+            ".NET 8 Desktop Runtime isn't installed, so divine.exe "
+            "(the bundled LSLib tool used for binary LSF conversion) "
+            "couldn't start.\n\n"
+            "Install it from Microsoft (free, ~55MB):\n"
+            f"   {self.DOWNLOAD_URL}\n\n"
+            "Pick 'Windows x64 Desktop Runtime 8.x.x', install, then "
+            "retry the merge or icon-add."
+        )
+        if detail:
+            msg += f"\n\n(Diagnostic: {detail})"
+        super().__init__(msg)
+
+
+# Patterns that indicate .NET runtime is missing. Different Windows
+# versions and divine builds report this differently; we look for any
+# of these in subprocess output to be robust to LSLib version updates.
+# Keep these short and lowercase: we match against the full output
+# also lowercased, so case mismatches don't matter.
+_DOTNET_MISSING_PATTERNS = (
+    "you must install or update .net",
+    "framework was not found",
+    "framework version",  # "no compatible framework version"
+    ".net runtime was not found",
+    "no .net runtimes were found",
+    "to install a missing version of .net",
+    "microsoft.netcore.app",
+    "microsoft.windowsdesktop.app",
+    "framework: 'microsoft",  # variant wording on some Windows builds
+)
+
+
+def _looks_like_dotnet_missing(stdout: str, stderr: str, returncode: int) -> bool:
+    """Heuristic: did divine fail to start because .NET 8 is missing?"""
+    haystack = (stdout + "\n" + stderr).lower()
+    if any(p in haystack for p in _DOTNET_MISSING_PATTERNS):
+        return True
+    # Windows error 0x80008096 (-2147450746): coreclr couldn't load.
+    if returncode in (-2147450746, 2147516950):
+        return True
+    return False
+
+
 # --- Locating divine.exe ---------------------------------------------------
 
 
@@ -96,26 +158,98 @@ DEFAULT_SEARCH_PATHS: list[str] = [
 ]
 
 
+def _bundled_divine_path() -> Path | None:
+    """Return the path to the LSLib copy bundled with this app, if any.
+
+    The app ships LSLib next to the entrypoint under ``tools/lslib/``.
+    Two layouts to support:
+
+      - PyInstaller one-file mode: the executable extracts bundled data
+        to a temp dir at startup and exposes the path via
+        ``sys._MEIPASS``. Our LSLib lives at ``<_MEIPASS>/tools/lslib/``.
+      - PyInstaller one-folder mode (or running from source): the app
+        runs from a directory that contains both the entrypoint and a
+        sibling ``tools/lslib/`` folder.
+
+    Returns the Path if the bundled divine.exe exists and is a file;
+    None otherwise. Never raises - callers fall back to PATH/heuristics
+    when nothing's bundled.
+    """
+    import sys
+    candidates: list[Path] = []
+    # One-file PyInstaller mode: sys._MEIPASS points at the unpacked
+    # temp dir. The attribute only exists when frozen, so guard with
+    # hasattr to keep this code import-clean when running from source.
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "tools" / "lslib" / "divine.exe")
+    # One-folder mode (or running from a checkout): walk up from the
+    # entrypoint until we find the marker. Most installs have the layout
+    # <install>/bg3_mod_merger.exe + <install>/tools/lslib/divine.exe,
+    # so the parent of sys.argv[0] is the right place to look first.
+    try:
+        entry = Path(sys.argv[0]).resolve().parent
+        candidates.append(entry / "tools" / "lslib" / "divine.exe")
+        # Also check the repo-root layout for developers running from
+        # source: <repo>/vendor/lslib/divine.exe.
+        candidates.append(entry / "vendor" / "lslib" / "divine.exe")
+        # And one parent up, since the dev entrypoint might be
+        # <repo>/gui/__main__.py, making argv[0] live in <repo>/gui/.
+        candidates.append(entry.parent / "vendor" / "lslib" / "divine.exe")
+    except (OSError, ValueError):
+        # Pathological argv[0] (empty, weird shell, ...) - just skip.
+        pass
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
 def find_divine(explicit_path: Path | str | None = None) -> Path:
     """Locate divine.exe, raising DivineNotFoundError if not found.
 
     Resolution order:
-    1. ``explicit_path`` if given (must exist; raised if it doesn't)
-    2. ``shutil.which("divine.exe")``: on PATH
-    3. ``shutil.which("divine")``: for Linux/Wine setups
-    4. Each entry in DEFAULT_SEARCH_PATHS that happens to exist
+    1. ``explicit_path`` if given (must exist; raised if it doesn't).
+       An explicit path always wins so a power user can point at their
+       own newer LSLib build and override the bundled copy.
+    2. Bundled LSLib next to the app (``<install>/tools/lslib/divine.exe``).
+       This is the common case: the user did nothing and our shipped
+       copy just works.
+    3. ``shutil.which("divine.exe")``: on PATH
+    4. ``shutil.which("divine")``: for Linux/Wine setups
+    5. Each entry in DEFAULT_SEARCH_PATHS that happens to exist
 
     The first hit wins. We don't validate that the executable actually
     is divine: caller code will discover that on first use.
+
+    ``explicit_path`` is normalized before checking: surrounding
+    whitespace and surrounding quotes are stripped. Windows users who
+    use File Explorer's "Copy as path" get paths wrapped in double
+    quotes (e.g. ``"C:\\Tools\\divine.exe"``), and pasted paths often
+    end up with stray whitespace. Both used to silently fail here.
     """
     tried: list[Path] = []
 
     if explicit_path is not None:
-        p = Path(explicit_path)
-        tried.append(p)
-        if p.is_file():
-            return p
-        raise DivineNotFoundError(tried)
+        raw = str(explicit_path).strip()
+        # Strip a single pair of surrounding quotes (Windows
+        # "Copy as path" produces these). Don't touch internal quotes.
+        if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
+            raw = raw[1:-1].strip()
+        # An empty string after normalizing means "not actually configured" —
+        # fall through to bundled/PATH lookup rather than raising on
+        # the empty path.
+        if raw:
+            p = Path(raw)
+            tried.append(p)
+            if p.is_file():
+                return p
+            raise DivineNotFoundError(tried)
+
+    # Bundled copy: no user config required.
+    bundled = _bundled_divine_path()
+    if bundled is not None:
+        return bundled
 
     for name in ("divine.exe", "divine"):
         found = shutil.which(name)
@@ -155,13 +289,31 @@ class Divine:
 
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         cmd = [str(self.exe_path), "-g", self.game, *args]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,  # we handle the return code below
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,  # we handle the return code below
+            )
+        except OSError as e:
+            # WinError 1114 ("DLL initialization failed") and 216 ("not
+            # compatible") are the typical signatures of "tried to run
+            # a .NET app without the .NET runtime". Surface the
+            # actionable error rather than the cryptic OS code.
+            winerror = getattr(e, "winerror", None)
+            if winerror in (216, 1114) or "0x800700d8" in str(e).lower():
+                raise DotNetMissingError(
+                    detail=f"OSError winerror={winerror}: {e}"
+                ) from e
+            raise
         if result.returncode != 0:
+            if _looks_like_dotnet_missing(
+                result.stdout, result.stderr, result.returncode
+            ):
+                raise DotNetMissingError(
+                    detail=(result.stderr or result.stdout).strip()[:300]
+                )
             raise DivineError(
                 command=cmd,
                 returncode=result.returncode,

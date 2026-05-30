@@ -82,14 +82,20 @@ def _copy_long(src: Path, dst: Path) -> None:
 def _remap_binary_lsf(
     src: Path, dst: Path, rset: "remap.RemapSet",
     divine: "_divine.Divine | None",
-) -> bool:
+) -> tuple[bool, str | None]:
     """Round-trip a binary LSF through LSX so its path/UUID/handle
     attributes can be remapped, then write the remapped LSF to ``dst``.
 
-    Returns True on success, False if ``divine`` is None. The fallback
-    path (verbatim copy) is the caller's responsibility, since the
-    caller has the result/notes context for reporting that the binary's
-    references will be stale.
+    Returns a (success, error_message) tuple:
+      - (True, None)          on success
+      - (False, None)         when ``divine`` is None (caller decides
+                              whether to warn — for some categories,
+                              verbatim copy is fine)
+      - (False, str)          when divine is available but the round-trip
+                              failed; the caller should surface this in
+                              the result so the user sees what broke
+
+    The fallback path (verbatim copy) is the caller's responsibility.
 
     The merger previously assumed binary LSF content didn't carry mod-
     folder-relative path strings, and so copied binary LSF verbatim
@@ -102,7 +108,7 @@ def _remap_binary_lsf(
     renders virtual textures as black.
     """
     if divine is None:
-        return False
+        return False, None
 
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".lsx", delete=False) as tmp_in:
@@ -110,13 +116,26 @@ def _remap_binary_lsf(
     with tempfile.NamedTemporaryFile(suffix=".lsx", delete=False) as tmp_out:
         tmp_out_path = Path(tmp_out.name)
     try:
-        divine.lsf_to_lsx(src, tmp_in_path)
-        parsed = lsx.parse_file(tmp_in_path)
-        if rset:
-            remap.rewrite_lsx(parsed, rset)
-        lsx.write_file(parsed, tmp_out_path)
-        divine.lsx_to_lsf(tmp_out_path, dst)
-        return True
+        try:
+            divine.lsf_to_lsx(src, tmp_in_path)
+            parsed = lsx.parse_file(tmp_in_path)
+            if rset:
+                remap.rewrite_lsx(parsed, rset)
+            lsx.write_file(parsed, tmp_out_path)
+            divine.lsx_to_lsf(tmp_out_path, dst)
+            return True, None
+        except _divine.DivineError as e:
+            return False, (
+                f"divine.exe failed to convert {src.name}: "
+                f"{type(e).__name__}: {e}"
+            )
+        except Exception as e:
+            # Anything else (parse error, OS error, ...): surface it
+            # rather than crashing the merge.
+            return False, (
+                f"Round-trip of {src.name} failed during remap: "
+                f"{type(e).__name__}: {e}"
+            )
     finally:
         for p in (tmp_in_path, tmp_out_path):
             try:
@@ -1102,14 +1121,23 @@ def _emit_single(
                 remap.rewrite_lsx(parsed, rset)
             lsx.write_file(parsed, dest)
         else:
-            roundtripped = _remap_binary_lsf(cf.path, dest, rset, config.divine)
-            if not roundtripped:
+            ok, err = _remap_binary_lsf(cf.path, dest, rset, config.divine)
+            if not ok:
                 _copy_long(cf.path, dest)
-                # Only worth warning about for registries whose binary
-                # content is known to encode mod-folder paths. For
-                # other binary LSF (root templates, level content),
-                # references are by UUID and verbatim copy is fine.
-                if cf.category == FileCategory.VIRTUAL_TEXTURE_BANK:
+                # Three cases to distinguish for the user:
+                #   1) divine wasn't configured and this category needs
+                #      remapping → warn loudly
+                #   2) divine was configured but the round-trip failed
+                #      → surface the error so the user can see WHY
+                #   3) divine wasn't configured but this category's
+                #      binary refs are by UUID, so verbatim is fine → no warning
+                if err is not None:
+                    result.notes.append(
+                        f"Could not remap binary {cf.path.name}: {err}. "
+                        f"Copied verbatim; references to the old mod "
+                        f"folder may break in-game."
+                    )
+                elif cf.category == FileCategory.VIRTUAL_TEXTURE_BANK:
                     result.notes.append(
                         f"Copied binary VirtualTextureBank {cf.path.name} "
                         f"verbatim because divine.exe isn't configured. "

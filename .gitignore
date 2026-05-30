@@ -23,3 +23,10 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Vendored LSLib (Norbyte/lslib). Not committed: CI downloads it before
+# the PyInstaller build, and developers building locally drop the
+# unzipped LSLib release here too. See vendor/lslib/README.md.
+vendor/lslib/*
+!vendor/lslib/README.md
+!vendor/lslib/NOTICE.txt

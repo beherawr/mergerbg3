@@ -174,24 +174,43 @@ class WorkspacePage(QWizardPage):
         ws_hint.setWordWrap(True)
         form.addRow("", ws_hint)
 
-        # --- divine.exe path (optional) ---
+        # --- divine.exe path (optional, since LSLib is now bundled) ---
         self.divine_edit = QLineEdit()
         self.divine_edit.setPlaceholderText(
-            "Optional: e.g. C:\\Tools\\LSLib\\divine.exe"
+            "Optional: leave empty to use the bundled LSLib (recommended)"
         )
         div_browse = QPushButton("Browse…")
         div_browse.clicked.connect(self._browse_divine)
+        # Live "Test" button: runs find_divine against the current
+        # field text and reports the exact result. Users who had divine
+        # configured but were still seeing "not configured" warnings
+        # had no way to see WHAT the runtime saw - the field looked
+        # right but the resolved path failed. This button shows the
+        # raw text, the normalized form (quotes stripped, whitespace
+        # trimmed), and whether find_divine resolved it. If a quick
+        # version-check succeeds it also confirms the file really is
+        # divine.exe and not e.g. a stale copy of a different tool.
+        div_test = QPushButton("Test")
+        div_test.setToolTip(
+            "Check whether divine.exe is reachable with the current path"
+        )
+        div_test.clicked.connect(self._test_divine)
         div_row = QHBoxLayout()
         div_row.addWidget(self.divine_edit, 1)
         div_row.addWidget(div_browse)
+        div_row.addWidget(div_test)
         div_widget = QWidget()
         div_widget.setLayout(div_row)
         form.addRow("divine.exe path:", div_widget)
 
         div_hint = QLabel(
-            "<i>Optional. Used for LSF binary conversion in advanced merge "
-            "scenarios. https://github.com/Norbyte/lslib/releases/</i>"
+            "<i>LSLib is bundled with this app, so you usually don't need to "
+            "set this. Requires <a href='https://dotnet.microsoft.com/"
+            "en-us/download/dotnet/8.0/runtime'>.NET 8 Desktop Runtime</a> "
+            "to be installed. Override above to point at a different "
+            "LSLib build. Click Test to verify it's working.</i>"
         )
+        div_hint.setOpenExternalLinks(True)
         div_hint.setWordWrap(True)
         form.addRow("", div_hint)
 
@@ -225,6 +244,174 @@ class WorkspacePage(QWizardPage):
         if chosen:
             self.divine_edit.setText(chosen)
 
+    def _test_divine(self) -> None:
+        """Run the same divine-resolution path the runtime uses and show
+        the user EXACTLY what we see.
+
+        Three cases this handles:
+          1. The field is empty: we report whether the BUNDLED divine
+             is reachable (the new "just works" default with this
+             release). Most users should see "OK" here without doing
+             anything.
+          2. The field has a value: we report the raw text in repr()
+             form so invisible characters (CRLF, BOM, zero-width space)
+             show up, then run find_divine with that path.
+          3. divine resolves but a probe fails with a .NET-missing
+             signature: we route the user directly to the Microsoft
+             download page instead of leaving them with a cryptic
+             "command failed" error.
+        """
+        raw = self.divine_edit.text()
+        # Capture in repr to expose invisible chars (CRLF / BOM /
+        # zero-width). Strip a single pair of surrounding quotes if
+        # present, the way find_divine does at runtime.
+        stripped = raw.strip()
+        normalized = stripped
+        if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in ('"', "'"):
+            normalized = normalized[1:-1].strip()
+
+        report_lines: list[str] = []
+        if raw:
+            report_lines.append(f"Raw field text:  {raw!r}")
+            if stripped != raw:
+                report_lines.append(f"After .strip():  {stripped!r}")
+            if normalized != stripped:
+                report_lines.append(f"Quotes stripped: {normalized!r}")
+        else:
+            report_lines.append(
+                "(Settings field is empty — testing the bundled "
+                "copy of LSLib that ships with this app.)"
+            )
+
+        # Resolve via the actual runtime path.
+        from core.divine import (
+            find_divine, DivineNotFoundError, _bundled_divine_path,
+            _looks_like_dotnet_missing,
+        )
+        bundled = _bundled_divine_path()
+        if bundled is not None:
+            report_lines.append(f"Bundled LSLib:   {bundled}")
+        else:
+            report_lines.append("Bundled LSLib:   (none found at expected path)")
+
+        try:
+            resolved = find_divine(raw if raw else None)
+            report_lines.append(f"Will use:        {resolved}")
+        except DivineNotFoundError as e:
+            report_lines.append("")
+            report_lines.append("Resolution FAILED: divine.exe not found.")
+            report_lines.append(str(e))
+            QMessageBox.warning(self, "divine.exe test", "\n".join(report_lines))
+            return
+        except Exception as e:
+            report_lines.append("")
+            report_lines.append(
+                f"Resolution FAILED with an unexpected error: "
+                f"{type(e).__name__}: {e}"
+            )
+            QMessageBox.warning(self, "divine.exe test", "\n".join(report_lines))
+            return
+
+        # Functional probe: actually invoke divine. This catches the
+        # case where the executable exists but can't start — the most
+        # common cause being missing .NET 8 Desktop Runtime.
+        import subprocess
+        try:
+            proc = subprocess.run(
+                [str(resolved), "--help"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if _looks_like_dotnet_missing(proc.stdout, proc.stderr, proc.returncode):
+                report_lines.append("")
+                report_lines.append("PROBE FAILED: divine.exe couldn't start.")
+                report_lines.append(
+                    "Cause: .NET 8 Desktop Runtime isn't installed."
+                )
+                report_lines.append("")
+                report_lines.append(
+                    "Install it from Microsoft (free, ~55MB):"
+                )
+                report_lines.append(
+                    "   https://dotnet.microsoft.com/en-us/download/"
+                    "dotnet/8.0/runtime"
+                )
+                report_lines.append(
+                    "Pick 'Windows x64 Desktop Runtime 8.x.x', install, "
+                    "then click Test again."
+                )
+                QMessageBox.warning(
+                    self, "divine.exe needs .NET 8",
+                    "\n".join(report_lines),
+                )
+                return
+
+            looks_like_divine = (
+                "divine" in (proc.stdout + proc.stderr).lower()
+                or "lslib" in (proc.stdout + proc.stderr).lower()
+                or proc.returncode in (0, 1)  # divine returns nonzero on --help
+            )
+            if looks_like_divine:
+                report_lines.append("")
+                report_lines.append(
+                    "OK: divine.exe responded to a probe. "
+                    "Icon-add and merging should both work."
+                )
+                QMessageBox.information(
+                    self, "divine.exe test", "\n".join(report_lines),
+                )
+            else:
+                report_lines.append("")
+                report_lines.append(
+                    f"WARNING: ran '{resolved} --help' but the output "
+                    f"doesn't look like divine. First 200 chars:"
+                )
+                report_lines.append((proc.stdout + proc.stderr)[:200])
+                QMessageBox.warning(
+                    self, "divine.exe test", "\n".join(report_lines),
+                )
+        except subprocess.TimeoutExpired:
+            report_lines.append("")
+            report_lines.append(
+                "WARNING: divine.exe took >10s to respond to --help. "
+                "It might be hung, blocked by Windows Defender, or "
+                "waiting on a network mount."
+            )
+            QMessageBox.warning(self, "divine.exe test", "\n".join(report_lines))
+        except OSError as e:
+            # Windows reports missing-.NET startup failures as OSError
+            # in some configurations.
+            winerror = getattr(e, "winerror", None)
+            if winerror in (216, 1114):
+                report_lines.append("")
+                report_lines.append(
+                    "PROBE FAILED: Windows couldn't load divine.exe "
+                    f"(WinError {winerror})."
+                )
+                report_lines.append(
+                    "This usually means .NET 8 Desktop Runtime isn't "
+                    "installed. Get it here:"
+                )
+                report_lines.append(
+                    "   https://dotnet.microsoft.com/en-us/download/"
+                    "dotnet/8.0/runtime"
+                )
+                QMessageBox.warning(
+                    self, "divine.exe needs .NET 8",
+                    "\n".join(report_lines),
+                )
+                return
+            report_lines.append("")
+            report_lines.append(
+                f"WARNING: couldn't probe divine.exe: {type(e).__name__}: {e}"
+            )
+            QMessageBox.warning(self, "divine.exe test", "\n".join(report_lines))
+        except Exception as e:
+            report_lines.append("")
+            report_lines.append(
+                f"WARNING: couldn't probe divine.exe: {type(e).__name__}: {e}"
+            )
+            QMessageBox.warning(self, "divine.exe test", "\n".join(report_lines))
+
     def isComplete(self) -> bool:
         # Workspace is required; divine.exe is optional.
         ws = self.workspace_edit.text().strip()
@@ -238,16 +425,42 @@ class WorkspacePage(QWizardPage):
     def validatePage(self) -> bool:
         """Save to settings on Next."""
         ws = self.workspace_edit.text().strip()
-        dv = self.divine_edit.text().strip()
-        if dv and not Path(dv).is_file():
-            ok = QMessageBox.question(
-                self, "divine.exe not found",
-                f"{dv} doesn't seem to exist. Use it anyway?\n\n"
-                "(You can change the path later from this page.)",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            if ok != QMessageBox.Yes:
-                return False
+        dv_raw = self.divine_edit.text().strip()
+
+        # Strip a single pair of surrounding quotes, the way find_divine
+        # does at runtime. Without this, users who pasted from Windows
+        # "Copy as path" would persist a quoted path here, and although
+        # find_divine handled the quotes at conversion time, the
+        # validation prompt below incorrectly reported the path didn't
+        # exist (Path('"C:/...".is_file()') is always False).
+        dv = dv_raw
+        if len(dv) >= 2 and dv[0] == dv[-1] and dv[0] in ('"', "'"):
+            dv = dv[1:-1].strip()
+
+        if dv:
+            # Validate with the same normalization the runtime uses, not
+            # a bare Path.is_file() check. find_divine handles whitespace,
+            # quotes, and falls back to PATH lookup if the explicit path
+            # doesn't exist; matching it here means the Settings prompt
+            # agrees with what add_icon / merger will actually see.
+            from core.divine import find_divine, DivineNotFoundError
+            try:
+                resolved = find_divine(dv)
+            except DivineNotFoundError:
+                ok = QMessageBox.question(
+                    self, "divine.exe not found",
+                    f"{dv!r} doesn't resolve to an existing file. "
+                    f"\n\nIf you pasted from Windows 'Copy as path', "
+                    f"the surrounding quotes have been removed for you. "
+                    f"Check for typos, that the file hasn't been moved, "
+                    f"and that the path points to divine.exe itself "
+                    f"(not its folder).\n\n"
+                    f"Use this path anyway?",
+                    QMessageBox.Yes | QMessageBox.No,
+                )
+                if ok != QMessageBox.Yes:
+                    return False
+
         self.state.settings.workspace_dir = ws
         self.state.settings.divine_path = dv
         # Persist immediately so even if the user closes the wizard
@@ -403,7 +616,10 @@ class SelectionPage(QWizardPage):
                 "add an icon to. Check your Data folder in Settings.",
             )
             return
-        dlg = AddIconDialog(self.state.discovered, self)
+        dlg = AddIconDialog(
+            self.state.discovered, self,
+            divine_path=(self.state.settings.divine_path or "").strip() or None,
+        )
         dlg.exec()
 
     def _rescan(self) -> None:
@@ -629,12 +845,22 @@ class AddIconDialog(QDialog):
     Toolkit would produce), so no merge or wizard state is involved.
     """
 
-    def __init__(self, discovered: list[DiscoveredProject], parent=None) -> None:
+    def __init__(
+        self,
+        discovered: list[DiscoveredProject],
+        parent=None,
+        divine_path: str | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Icon to Mod")
         self.setMinimumWidth(560)
         self._discovered = discovered
         self._png_path: Path | None = None
+        # divine.exe path is forwarded to icon_add.add_icon: the PORTRAIT
+        # family uses it to write the binary GUI/metadata.lsf directly
+        # (falling back to a .lsf.lsx text form if divine isn't
+        # configured). Other families don't currently need it.
+        self._divine_path = divine_path or None
 
         layout = QVBoxLayout(self)
 
@@ -713,22 +939,40 @@ class AddIconDialog(QDialog):
             self.type_hint.setText("")
             return
         if spec.family is icon_add.IconFamily.ATLAS:
+            extra = (" Items go into BOTH Tooltips/Icons and Tooltips/ItemIcons."
+                     if spec.write_to_item_tooltips else "")
             self.type_hint.setText(
-                "Atlas icon: generates tooltip (380), controller (144), and "
-                "hotbar atlas (64) DDS files, plus the UV map and "
-                "TextureBank. Reference it via a stat's Icon field."
+                f"Atlas icon: writes tooltip (380), controller (144), and "
+                f"hotbar atlas (64) DDS files, plus the UV map and "
+                f"TextureBank, and registers them in metadata.lsf. "
+                f"Reference it via a stat's Icon field.{extra}"
             )
         elif spec.family is icon_add.IconFamily.CLASS:
             self.type_hint.setText(
-                "Class/subclass icon: generates standard + hotbar DDS files "
-                "(and low-res copies). Name it to match your class's "
+                "Class/subclass icon: writes 300x300 DDS files to "
+                "Mods/&lt;Mod&gt;/GUI/Assets/ClassIcons/ (standard + hotbar) "
+                "and mirrored AssetsLowRes copies. Registers all four in "
+                "metadata.lsf. Name it to match your ClassDescription's "
                 "internal Name."
             )
-        else:  # CC
+        elif spec.family is icon_add.IconFamily.ACTION_RESOURCE:
             self.type_hint.setText(
-                "Character-creation icon (500x500): generates the CC DDS "
-                "and a low-res copy. Usually white-with-transparency; "
-                "backgrounds are named by GUID."
+                "Action Resource icon set: writes a complete set of DDS "
+                "files (default + 3 state variants + Shared/Resources "
+                "copies + CC copy, all mirrored to AssetsLowRes), and "
+                "registers every entry in metadata.lsf. Reference it by "
+                "the Name attribute in your ActionResourceDefinitions.lsx."
+            )
+        elif spec.family is icon_add.IconFamily.PORTRAIT:
+            self.type_hint.setText(
+                "Portrait (152x152 + 76x76 low-res): writes both DDS files "
+                "to Mods/&lt;Mod&gt;/GUI/... and registers them in "
+                "GUI/metadata.lsf. For a portrait in your own mod, any "
+                "clean name works. To override a base-game NPC's portrait, "
+                "use the target character's exact portrait filename "
+                "(usually a GUID-prefixed name like &lt;uuid&gt;-(Icon_&lt;...&gt;) "
+                "from their root template Icon attribute) and the target "
+                "character's mod folder (often GustavDev)."
             )
 
     def _browse_png(self) -> None:
@@ -761,6 +1005,7 @@ class AddIconDialog(QDialog):
                 icon_name=icon_name,
                 icon_type=icon_type,
                 png_path=self._png_path,
+                divine_path=self._divine_path,
             )
         except icon_add.IconAddError as e:
             QMessageBox.warning(self, "Couldn't add icon", str(e))
@@ -1180,18 +1425,50 @@ class RunPage(QWizardPage):
         # Build MergeConfig and spawn the worker. The merge mode picked
         # on the SelectionPage maps directly onto MergeConfig.in_place.
         # If the user configured a divine.exe path, instantiate a bound
-        # Divine and pass it through so LSF round-tripping (currently
-        # used for GUI/metadata.lsf structural merge) works.
+        # Divine and pass it through so LSF round-tripping (binary VTB
+        # remap, GUI/metadata.lsf structural merge, ...) works.
         divine_obj = None
         divine_path = self.state.settings.divine_path.strip()
         if divine_path:
             try:
                 from core.divine import Divine, find_divine
                 divine_obj = Divine(exe_path=find_divine(divine_path))
-            except Exception:
-                # Bad path → silently fall back to no-divine mode. The
-                # merger will surface the consequences (e.g. keep-A for
-                # GUI metadata) in its summary.
+            except Exception as e:
+                # We used to silently fall back to no-divine mode here,
+                # but that hid the real cause of "virtual textures are
+                # still black after merge" reports: divine.exe was
+                # configured in Settings but the path didn't resolve
+                # (typo, stale path, surrounding quotes from "Copy as
+                # path", trailing whitespace, mixed slashes...) and the
+                # merge silently ran without it. Now we ask the user
+                # before doing a possibly-broken merge.
+                answer = QMessageBox.warning(
+                    self, "divine.exe not reachable",
+                    f"The divine.exe path in Settings doesn't resolve to "
+                    f"a usable file:\n\n"
+                    f"   Configured path: {divine_path!r}\n"
+                    f"   Error: {type(e).__name__}: {e}\n\n"
+                    f"Without divine.exe, the merger CAN still produce "
+                    f"output, but it can't structurally merge binary "
+                    f"LSF files. Specifically:\n"
+                    f"  - Virtual textures may render BLACK in-game "
+                    f"    (VirtualTextureBank paths can't be remapped).\n"
+                    f"  - One side of GUI/metadata.lsf is kept; the "
+                    f"    other is dropped.\n\n"
+                    f"Continue the merge anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    # Re-enable wizard navigation and abort.
+                    for btn in (
+                        QWizard.BackButton, QWizard.NextButton,
+                        QWizard.FinishButton, QWizard.CancelButton,
+                    ):
+                        b = wizard.button(btn)
+                        if b is not None:
+                            b.setEnabled(True)
+                    return
                 divine_obj = None
 
         config = merger.MergeConfig(
@@ -1334,6 +1611,21 @@ class ResultPage(QWizardPage):
                     lines.append(f"  {c.identifier}")
                 if len(file_overlaps) > 20:
                     lines.append(f"  … and {len(file_overlaps) - 20} more")
+
+        # Surface global notes — currently used for cases like "VTB
+        # binary couldn't be remapped because divine.exe wasn't
+        # configured" or "divine round-trip failed mid-merge". Without
+        # this, users would see VTB-related symptoms in-game (textures
+        # rendering black, etc.) with no UI breadcrumb explaining why,
+        # and have to dig through the on-disk report to find out.
+        if result.notes:
+            lines.append("")
+            lines.append("--- Notes ---")
+            for note in result.notes:
+                # Word-wrap loosely so the monospace QTextEdit doesn't
+                # truncate long messages into invisibility.
+                lines.append("")
+                lines.append(f"* {note}")
 
         if report is not None:
             lines.append("")

@@ -6,7 +6,8 @@
 #
 # Produces ``dist/bg3_mod_merger.exe`` (one-file mode). The launcher
 # bundles Python + PySide6 + lxml + the entire ``core/`` and ``gui/``
-# packages. Compressed size is ~35-50 MB.
+# packages, AND LSLib (Norbyte's divine.exe + dependencies) when present
+# at ``vendor/lslib/``. Compressed size with LSLib is ~40-55 MB.
 #
 # Distribution notes:
 # - ``upx=False``: UPX-packed binaries trigger Windows Defender and
@@ -19,8 +20,12 @@
 # - ``version='version_info.txt'``: embeds proper Windows file-version
 #   metadata. SmartScreen treats exes with valid version info less
 #   suspiciously than those without.
-# - We don't bundle divine.exe. Users supply its path in app Settings.
-#   Bundling LSLib raises a licensing question; sidestepping for now.
+# - LSLib is included under its MIT license. Its full source and
+#   license live at https://github.com/Norbyte/lslib. We ship the
+#   release-zip contents verbatim (divine.exe + LSLib.dll +
+#   dependencies) under vendor/lslib/. CI downloads them before the
+#   PyInstaller step; locally, drop the unzipped LSLib release at
+#   vendor/lslib/ before building.
 
 # -*- mode: python ; coding: utf-8 -*-
 
@@ -28,14 +33,36 @@ import os
 
 block_cipher = None
 
+# Bundle LSLib if it's been placed under vendor/lslib/ (typically by
+# CI's "Download LSLib release" step before build, or manually by a
+# developer who unzipped Norbyte's release there). At runtime, LSLib
+# lives next to the entrypoint under tools/lslib/divine.exe, and
+# core.divine._bundled_divine_path() finds it from sys._MEIPASS.
+#
+# If the directory doesn't exist (e.g. build-from-fresh-checkout
+# without CI), we still produce a working exe — divine just won't be
+# bundled. core.divine.find_divine falls through to PATH lookup and
+# the user can configure their own divine.exe in Settings, the way
+# the pre-bundle release behaved.
+_vendor_lslib = os.path.join('vendor', 'lslib')
+_bundled_datas = []
+if os.path.isdir(_vendor_lslib):
+    # PyInstaller datas tuples are (source, dest_dir_in_bundle).
+    # Recursively include every file under vendor/lslib/. Each file
+    # ends up at <bundle>/tools/lslib/<filename> at runtime.
+    for root, _dirs, files in os.walk(_vendor_lslib):
+        for name in files:
+            src = os.path.join(root, name)
+            # Preserve any subdir structure inside vendor/lslib.
+            rel = os.path.relpath(root, _vendor_lslib)
+            dest_dir = 'tools/lslib' if rel in ('.', '') else f'tools/lslib/{rel.replace(os.sep, "/")}'
+            _bundled_datas.append((src, dest_dir))
+
 a = Analysis(
     ['gui/__main__.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        # If we add a stylesheet, icons, or default settings template,
-        # they go here as ('source_path', 'dest_relative_path') tuples.
-    ],
+    datas=_bundled_datas,
     hiddenimports=[
         # lxml has C-extension submodules PyInstaller's static analysis
         # sometimes misses.
