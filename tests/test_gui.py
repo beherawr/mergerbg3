@@ -1006,9 +1006,14 @@ def test_add_icon_dialog_type_hint_changes_per_family(qapp, tmp_path):
     ar_hint = dlg.type_hint.text()
     dlg.type_combo.setCurrentText("Portrait")
     portrait_hint = dlg.type_hint.text()
-    # All four are distinct.
-    assert len({atlas_hint, class_hint, ar_hint, portrait_hint}) == 4
-    assert "atlas" in atlas_hint.lower()
+    # ATLAS hint is intentionally empty — the cosmetic-options panel
+    # and preview right below the form already make it obvious what'll
+    # be written, and the earlier prose was overexplaining a simple
+    # case. The non-ATLAS families still have informative hints
+    # because their pipelines write to less-obvious paths.
+    assert atlas_hint == ""
+    # The three remaining hints are distinct and mention their family.
+    assert len({class_hint, ar_hint, portrait_hint}) == 3
     assert "class" in class_hint.lower()
     assert "action resource" in ar_hint.lower()
     assert "portrait" in portrait_hint.lower()

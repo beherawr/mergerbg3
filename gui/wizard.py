@@ -880,14 +880,12 @@ class AddIconDialog(QDialog):
             self.type_hint.setText("")
             return
         if spec.family is icon_add.IconFamily.ATLAS:
-            extra = (" Items go into BOTH Tooltips/Icons and Tooltips/ItemIcons."
-                     if spec.write_to_item_tooltips else "")
-            self.type_hint.setText(
-                f"Atlas icon: writes tooltip (380), controller (144), and "
-                f"hotbar atlas (64) DDS files, plus the UV map and "
-                f"TextureBank, and registers them in metadata.lsf. "
-                f"Reference it via a stat's Icon field.{extra}"
-            )
+            # The cosmetic panel and live preview right below this
+            # already make it obvious what'll get written. The earlier
+            # hint text spelled out the file sizes and the metadata.lsf
+            # registration as a separate paragraph, which read like
+            # implementation trivia and overexplained the simple case.
+            self.type_hint.setText("")
         elif spec.family is icon_add.IconFamily.CLASS:
             self.type_hint.setText(
                 "Class/subclass icon: writes 300x300 DDS files to "

@@ -110,16 +110,6 @@ class IconCosmeticPanel(QGroupBox):
         controls_form.addRow("Tooltip fade:", fade_widget)
 
         controls_col.addLayout(controls_form)
-
-        # Hint about scope: makes it clear what each control does.
-        hint = QLabel(
-            "<i>Background composites under the 64x64 hotbar tile only. "
-            "Fade applies a soft radial edge to the 380x380 tooltip "
-            "image. The 144x144 controller icon stays as-is — that "
-            "matches what reference mods ship. Both default off.</i>"
-        )
-        hint.setWordWrap(True)
-        controls_col.addWidget(hint)
         controls_col.addStretch(1)
         layout.addLayout(controls_col, 1)
 
