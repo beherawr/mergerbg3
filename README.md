@@ -4,6 +4,8 @@ A Windows desktop tool for **merging two Baldur's Gate 3 Toolkit mods into a sin
 
 Made by For_Kiramay.
 
+*Virtual Texture Bug: Combining mods that contain Virtual Textures in some instances turns the VTs black. Working on a fix.
+
 ---
 
 ## What it does
