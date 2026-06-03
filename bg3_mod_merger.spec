@@ -70,6 +70,19 @@ if os.path.isdir(_bg_assets):
         if os.path.isfile(src):
             _bundled_datas.append((src, 'gui/assets/icon_backgrounds'))
 
+# Bundled game-icons.net set (~4180 256x256 1-bit PNGs, CC BY 3.0).
+# Same layout pattern as icon_backgrounds: shipped under gui/assets/
+# in source, ends up at the same relative path inside the exe via
+# sys._MEIPASS. The runtime lookup in gui/game_icons_search.py
+# resolves both layouts. The _index.json file in the same folder is
+# the search corpus (icon name + author per entry).
+_gi_assets = os.path.join('gui', 'assets', 'game_icons')
+if os.path.isdir(_gi_assets):
+    for name in os.listdir(_gi_assets):
+        src = os.path.join(_gi_assets, name)
+        if os.path.isfile(src):
+            _bundled_datas.append((src, 'gui/assets/game_icons'))
+
 a = Analysis(
     ['gui/__main__.py'],
     pathex=[],

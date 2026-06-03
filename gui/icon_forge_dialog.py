@@ -34,7 +34,7 @@ from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QColorDialog, QDialog, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QRadioButton,
-    QScrollArea, QSlider, QVBoxLayout, QWidget,
+    QScrollArea, QSlider, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from core import icon_forge
@@ -135,6 +135,7 @@ class IconForgeDialog(QDialog):
         # Workers populate _thumb_refs to keep QPixmap objects alive while
         # they're displayed in the results grid.
         self._thumb_refs: list[QPixmap] = []
+        self._gi_thumb_refs: list[QPixmap] = []  # game-icons tab thumbnails
 
         # Worker signals
         self._signals = _SearchSignals()
@@ -184,11 +185,186 @@ class IconForgeDialog(QDialog):
         col = QVBoxLayout()
         col.addWidget(self._heading("1. Find art"))
         col.addWidget(self._muted(
-            "Search free, CC-licensed clip / line art on Openverse,\n"
-            "or load your own image."
+            "Browse the bundled fantasy icon set, search Openverse for\n"
+            "free CC-licensed art, or load your own image."
         ))
 
-        # Search bar.
+        # Tabbed search: Game Icons (offline, ~4180 fantasy icons) +
+        # Openverse (network, broader scope). Each tab has its own
+        # search bar and its own results list so switching tabs
+        # doesn't reset the other tab's state.
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_game_icons_tab(), "Game Icons")
+        self.tabs.addTab(self._build_openverse_tab(), "Openverse")
+        col.addWidget(self.tabs, 1)
+
+        # Below the tabs: "Load my own image" is always accessible
+        # regardless of which tab is active.
+        own_btn = QPushButton("Load my own image...")
+        own_btn.clicked.connect(self._load_own)
+        col.addWidget(own_btn)
+        return col
+
+    # ---- Game Icons tab (bundled, offline) ---------------------------------
+
+    def _build_game_icons_tab(self) -> QWidget:
+        """Tab containing the bundled game-icons.net set. Search is
+        offline and instant: matches against icon names. The default
+        view (empty search) shows the first batch of icons so the user
+        has something to scroll through without typing first."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        bar = QHBoxLayout()
+        self.gi_search_edit = QLineEdit()
+        self.gi_search_edit.setPlaceholderText(
+            "e.g. lightning, skull, rune, dragon"
+        )
+        # Live filter as the user types; the index is small enough that
+        # we can re-search on every keystroke without any noticeable
+        # lag. No debounce needed.
+        self.gi_search_edit.textChanged.connect(self._do_game_icons_search)
+        bar.addWidget(self.gi_search_edit, 1)
+        layout.addLayout(bar)
+
+        # Hint about attribution. game-icons.net is CC BY 3.0, so the
+        # user should credit the contributors in their mod description.
+        # We don't pop a dialog every time, but a quiet inline reminder
+        # keeps users honest.
+        layout.addWidget(self._muted(
+            "Icons by game-icons.net contributors (CC BY 3.0).\n"
+            "Credit them in your mod description."
+        ))
+
+        self.gi_results_scroll = QScrollArea()
+        self.gi_results_scroll.setWidgetResizable(True)
+        self.gi_results_container = QWidget()
+        self.gi_results_layout = QVBoxLayout(self.gi_results_container)
+        self.gi_results_layout.setSpacing(4)
+        self.gi_results_layout.addStretch(1)
+        self.gi_results_scroll.setWidget(self.gi_results_container)
+        layout.addWidget(self.gi_results_scroll, 1)
+
+        # Populate with initial results (empty query = first N icons).
+        # Defer until after construction completes so signal wiring is
+        # fully in place.
+        QTimer.singleShot(0, lambda: self._do_game_icons_search(""))
+
+        return page
+
+    def _do_game_icons_search(self, query: str) -> None:
+        """Filter the bundled set by query and rebuild the results.
+        Called on every keystroke in the Game Icons search bar."""
+        # Lazy import to avoid loading the index at startup if the
+        # user never opens the forge.
+        from . import game_icons_search
+
+        # Clear previous results.
+        while self.gi_results_layout.count() > 1:
+            item = self.gi_results_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._gi_thumb_refs = []  # release old pixmaps too
+
+        hits = game_icons_search.search(query, limit=80)
+        if not hits:
+            self.gi_results_layout.insertWidget(
+                0,
+                self._muted("No results. Try different words."),
+            )
+            return
+
+        # Render results as a card per icon, like the Openverse panel.
+        # Loading 80 PNGs at once would be slow if PNGs were big, but
+        # ours are 1KB each so this completes in well under 100ms.
+        for entry in hits:
+            self._add_game_icon_card(entry)
+
+    def _add_game_icon_card(self, entry) -> None:
+        """Build a clickable result row for one bundled icon."""
+        from . import game_icons_search
+
+        card = QFrame()
+        card.setStyleSheet(
+            "QFrame { background: #272231; border-radius: 4px; }"
+            "QFrame:hover { background: #34303f; }"
+        )
+        card.setCursor(Qt.PointingHandCursor)
+        row = QHBoxLayout(card)
+        row.setContentsMargins(4, 4, 4, 4)
+
+        # Thumbnail: load the 256x256 bundled PNG, shrink to ~64x64
+        # for display in the results list. Image is 1-bit so it's
+        # white-on-black; render against the dark card background so
+        # the white silhouette pops.
+        try:
+            img = game_icons_search.load_image(entry)
+            img.thumbnail((64, 64), Image.Resampling.LANCZOS)
+            pix = _pil_to_qpixmap(img.convert("RGBA"))
+            self._gi_thumb_refs.append(pix)
+            img_lbl = QLabel()
+            img_lbl.setPixmap(pix)
+            img_lbl.setFixedSize(64, 64)
+            img_lbl.setAlignment(Qt.AlignCenter)
+        except Exception:
+            img_lbl = QLabel("?")
+            img_lbl.setFixedSize(64, 64)
+        row.addWidget(img_lbl)
+
+        meta = QVBoxLayout()
+        name_lbl = QLabel(entry.name)
+        name_lbl.setStyleSheet("color: #e9e4f0;")
+        meta.addWidget(name_lbl)
+        author_lbl = QLabel(f"by {entry.author}")
+        author_lbl.setStyleSheet("color: #888; font-size: 10px;")
+        meta.addWidget(author_lbl)
+        meta.addStretch(1)
+        row.addLayout(meta, 1)
+
+        def on_click(evt, e=entry):
+            self._choose_game_icon(e)
+        card.mousePressEvent = on_click
+
+        self.gi_results_layout.insertWidget(
+            self.gi_results_layout.count() - 1, card,
+        )
+
+    def _choose_game_icon(self, entry) -> None:
+        """Load the chosen bundled icon as the forge source and render."""
+        from . import game_icons_search
+        try:
+            img = game_icons_search.load_image(entry)
+            # Convert L-mode grayscale to RGBA so the rest of the
+            # pipeline (which expects RGBA) is happy. The L channel
+            # becomes the alpha so transparency follows the silhouette.
+            # Setting RGB to the same white gives a clean white-on-
+            # transparent source the stylizer can colorize.
+            from PIL import Image as _Image
+            white = _Image.new("L", img.size, 255)
+            source = _Image.merge("RGBA", (white, white, white, img))
+            self._source = source
+            self.caption_label.setText(
+                f"Source: {entry.name}  (by {entry.author}, CC BY 3.0)"
+            )
+            self._set_status("Loaded game icon")
+            self._render()
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Couldn't load icon",
+                f"Couldn't open the bundled icon:\n{e}"
+            )
+
+    # ---- Openverse tab (network) -------------------------------------------
+
+    def _build_openverse_tab(self) -> QWidget:
+        """Tab containing Openverse search. Same general shape as
+        before but lives inside a tab now instead of being the only
+        search option. Network access is required and slower than
+        the bundled set."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
         bar = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("e.g. lightning bolt, skull, rune")
@@ -197,14 +373,13 @@ class IconForgeDialog(QDialog):
         search_btn = QPushButton("Search")
         search_btn.clicked.connect(self._do_search)
         bar.addWidget(search_btn)
-        col.addLayout(bar)
+        layout.addLayout(bar)
 
-        # Load own.
-        own_btn = QPushButton("Load my own image...")
-        own_btn.clicked.connect(self._load_own)
-        col.addWidget(own_btn)
+        layout.addWidget(self._muted(
+            "Openverse aggregates CC-licensed images from many sources.\n"
+            "Slower than the bundled set; requires internet."
+        ))
 
-        # Scrollable results panel.
         self.results_scroll = QScrollArea()
         self.results_scroll.setWidgetResizable(True)
         self.results_container = QWidget()
@@ -212,8 +387,9 @@ class IconForgeDialog(QDialog):
         self.results_layout.setSpacing(4)
         self.results_layout.addStretch(1)
         self.results_scroll.setWidget(self.results_container)
-        col.addWidget(self.results_scroll, 1)
-        return col
+        layout.addWidget(self.results_scroll, 1)
+
+        return page
 
     def _build_preview_column(self) -> QVBoxLayout:
         col = QVBoxLayout()

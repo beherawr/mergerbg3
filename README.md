@@ -51,3 +51,9 @@ On first run, Windows may show a "Windows protected your PC" SmartScreen prompt.
 
 ---
 
+
+## Credits
+
+The Icon Forge (the "Forge..." button on the Add Icon dialog) ships with the full [game-icons.net](https://game-icons.net) icon set, bundled offline for instant browsing without an internet connection. Those icons are provided under the [Creative Commons 3.0 BY](https://creativecommons.org/licenses/by/3.0/) license. Credit goes to the game-icons.net contributors collectively, with the per-icon author visible in the search results when you pick one. If you ship a mod that uses an icon from this set, please mention game-icons.net and the specific icon author in your mod's description on Nexus or wherever you publish.
+
+Contributors include Lorc, Delapouite, John Colburn, Felbrigg, John Redman, Carl Olsen, Sbed, PriorBlue, Willdabeast, Viscious Speed (CC0), Lord Berandas, Irongamer, HeavenlyDog, Lucas, Faithtoken, Skoll, Andy Meneely, Cathelineau, Kier Heyl, Aussiesim, Sparker, Zeromancer (CC0), Rihlsul, Quoting, Guard13007, DarkZaitzev, SpencerDub, GeneralAce135, Zajkonur, Catsu, Starseeker, Pepijn Poolman, Pierre Leducq, Caro Asercion, and SeregaCthtuf. The full list and per-author attributions live in the game-icons.net repository.
