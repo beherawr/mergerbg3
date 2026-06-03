@@ -153,10 +153,10 @@ def load_background(choice: BackgroundChoice) -> Image.Image:
 class IconComposeOptions:
     """Per-icon cosmetic options the user picks in the Add Icon dialog.
 
-    Both fields are no-ops at their default values, so passing a
+    All fields are no-ops at their default values, so passing a
     default-constructed instance through the icon_add pipeline
     produces output byte-identical to the pre-feature behaviour. The
-    user has to explicitly opt in to either treatment.
+    user has to explicitly opt in to any treatment.
 
     Attributes:
         background: Choice of stock background to composite under the
@@ -166,9 +166,18 @@ class IconComposeOptions:
             the 380x380 tooltip image. 0.0 (the default) means no
             fade. 1.0 means strong fade (edges fully transparent).
             Smooth Gaussian falloff in between; see ``compose_tooltip``.
+        foreground_scale: How big the user's PNG should be relative
+            to the target tile when a background is selected. 1.0 (the
+            default) means the PNG fills the tile edge to edge - which
+            often hides the background's runic frame because the icon
+            covers it. 0.7 means the PNG is shrunk to 70% and centered
+            inside the tile, so the frame remains visible around it.
+            Only applies when ``background`` is also set; ignored
+            otherwise (no background = nothing to leave visible).
     """
     background: Optional[BackgroundChoice] = None
     tooltip_fade: float = 0.0  # 0.0..1.0
+    foreground_scale: float = 1.0  # 0.3..1.0; centered on canvas
 
     @property
     def applies_background(self) -> bool:
@@ -199,15 +208,17 @@ def compose_atlas_tile(
     Pipeline:
       1. Start with a target-sized transparent canvas, or a copy of
          the chosen background scaled to the target size.
-      2. Resize the user's foreground PNG to the target size, using
-         high-quality Lanczos resampling.
-      3. Alpha-composite the foreground over the canvas.
+      2. Resize the user's foreground PNG. If ``foreground_scale`` is
+         less than 1.0, the PNG is sized down so it doesn't fill the
+         whole tile - it gets centered on top of the background with
+         the background's runic frame remaining visible around it.
+      3. Alpha-composite the (possibly inset) foreground over the canvas.
 
     If no background is selected, this degrades to "resize foreground
     to target_px"  -  the same operation the pre-feature code performed.
-    Callers can keep the no-background fast path by checking
-    ``options.applies_background`` and skipping this helper entirely,
-    but calling it with no background is still correct.
+    The foreground_scale option is ignored without a background because
+    there's no point shrinking an icon onto transparency: it would
+    just leave empty pixels around the edge.
 
     The 64x64 hotbar tile is derived from a fresh composition at
     target_px=64 rather than downscaling a 144x144 composition, so the
@@ -215,21 +226,43 @@ def compose_atlas_tile(
     Lanczos resizing on the background handles the 144→64 downscale
     cleanly.
     """
-    fg = foreground.convert("RGBA").resize(
-        (target_px, target_px), Image.Resampling.LANCZOS
-    )
-
     if options.background is None:
         # No background: callers that hit this branch could have
         # short-circuited, but we handle it cleanly anyway. The result
-        # equals the previous no-effects code path.
-        return fg
+        # equals the previous no-effects code path. Foreground_scale is
+        # meaningless here (nothing to inset against) so we ignore it.
+        return foreground.convert("RGBA").resize(
+            (target_px, target_px), Image.Resampling.LANCZOS
+        )
 
     bg = load_background(options.background).resize(
         (target_px, target_px), Image.Resampling.LANCZOS
     )
-    # Composite fg onto bg respecting both alpha channels.
-    result = Image.alpha_composite(bg, fg)
+
+    # Decide the foreground size. Clamp the scale to a sane range so a
+    # bad value (slider misuse, programming error, garbage from tests)
+    # doesn't produce a 0-pixel image or one that's bigger than the
+    # tile.
+    scale = max(0.1, min(1.0, options.foreground_scale))
+    fg_px = max(1, int(round(target_px * scale)))
+    fg = foreground.convert("RGBA").resize(
+        (fg_px, fg_px), Image.Resampling.LANCZOS
+    )
+
+    if fg_px == target_px:
+        # Same size as the tile: alpha-composite directly. This is the
+        # fast path and gives byte-identical output to the pre-scale
+        # behaviour when scale=1.0.
+        return Image.alpha_composite(bg, fg)
+
+    # Foreground is smaller than the tile: paste it centered on the
+    # background. We compose onto a copy of the background and use the
+    # foreground's own alpha as the paste mask, so the background shows
+    # through transparent regions of the foreground AND through the
+    # margins around the inset foreground.
+    result = bg.copy()
+    offset = (target_px - fg_px) // 2
+    result.paste(fg, (offset, offset), fg)
     return result
 
 

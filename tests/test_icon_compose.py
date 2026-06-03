@@ -360,3 +360,95 @@ def test_add_icon_ignores_compose_options_for_non_atlas_families(tmp_path):
     note_text = " ".join(result.notes).lower()
     assert "applied background" not in note_text
     assert "applied tooltip fade" not in note_text
+
+
+def test_foreground_scale_defaults_to_full_size():
+    """Default scale is 1.0 (icon fills tile). Pre-feature behavior."""
+    opts = icon_compose.IconComposeOptions()
+    assert opts.foreground_scale == 1.0
+
+
+def test_compose_atlas_tile_with_scale_keeps_background_visible(tmp_path, monkeypatch):
+    """With foreground_scale < 1.0 and a solid-blue background, the
+    inset margin around the foreground should show the background.
+    This pins the runic-frame-visibility fix: at 70% scale, the
+    outer 15% of pixels on each edge should be blue (background)."""
+    bg_dir = tmp_path / "bg"
+    bg_dir.mkdir()
+    bg_path = bg_dir / "test_bg.png"
+    Image.new("RGBA", (144, 144), (0, 0, 255, 255)).save(bg_path)
+    monkeypatch.setattr(icon_compose, "_backgrounds_dir", lambda: bg_dir)
+    bgs = icon_compose.list_backgrounds()
+    assert len(bgs) == 1
+
+    # Foreground: solid red 200x200 (fills any tile if scale=1).
+    fg = Image.new("RGBA", (200, 200), (255, 0, 0, 255))
+    opts = icon_compose.IconComposeOptions(
+        background=bgs[0], foreground_scale=0.7,
+    )
+    result = icon_compose.compose_atlas_tile(fg, opts, 64)
+    assert result.size == (64, 64)
+
+    # Center pixel: should be red (foreground covers center).
+    centre = result.getpixel((32, 32))
+    assert centre[:3] == (255, 0, 0), f"Center should be red, got {centre[:3]}"
+
+    # Corner pixel: should be blue (background visible at corners).
+    corner = result.getpixel((1, 1))
+    assert corner[:3] == (0, 0, 255), f"Corner should be blue, got {corner[:3]}"
+
+
+def test_compose_atlas_tile_scale_one_matches_pre_scale_path(tmp_path, monkeypatch):
+    """Scale=1.0 must produce the same result as the pre-feature
+    code path. Backward compat for users who don't touch the slider."""
+    bg_dir = tmp_path / "bg"
+    bg_dir.mkdir()
+    Image.new("RGBA", (144, 144), (0, 0, 255, 255)).save(bg_dir / "bg.png")
+    monkeypatch.setattr(icon_compose, "_backgrounds_dir", lambda: bg_dir)
+    bgs = icon_compose.list_backgrounds()
+
+    fg = _fg_with_transparent_corners()
+    opts_default = icon_compose.IconComposeOptions(background=bgs[0])
+    opts_explicit = icon_compose.IconComposeOptions(
+        background=bgs[0], foreground_scale=1.0,
+    )
+    r1 = icon_compose.compose_atlas_tile(fg, opts_default, 64)
+    r2 = icon_compose.compose_atlas_tile(fg, opts_explicit, 64)
+    assert r1.tobytes() == r2.tobytes()
+
+
+def test_compose_atlas_tile_scale_ignored_without_background():
+    """foreground_scale only applies when there's a background to
+    inset against. Without a background, the option has no meaning
+    and we ignore it cleanly (no crash, no weird transparent margin)."""
+    fg = _fg_with_transparent_corners()
+    opts = icon_compose.IconComposeOptions(
+        background=None, foreground_scale=0.5,
+    )
+    result = icon_compose.compose_atlas_tile(fg, opts, 64)
+    # Result must be 64x64 and have the same alpha pattern as a
+    # plain resize (the scale is ignored).
+    assert result.size == (64, 64)
+    # Center is red (preserved from foreground).
+    centre = result.getpixel((32, 32))
+    assert centre[:3] == (255, 0, 0)
+
+
+def test_compose_atlas_tile_scale_clamps_extreme_values(tmp_path, monkeypatch):
+    """Bad scale values (negative, zero, >1) get clamped to a valid
+    range instead of crashing or producing degenerate output."""
+    bg_dir = tmp_path / "bg"
+    bg_dir.mkdir()
+    Image.new("RGBA", (144, 144), (0, 0, 0, 255)).save(bg_dir / "bg.png")
+    monkeypatch.setattr(icon_compose, "_backgrounds_dir", lambda: bg_dir)
+    bgs = icon_compose.list_backgrounds()
+
+    fg = Image.new("RGBA", (100, 100), (255, 255, 255, 255))
+    # Zero gets clamped to a small non-zero value.
+    opts = icon_compose.IconComposeOptions(background=bgs[0], foreground_scale=0.0)
+    result = icon_compose.compose_atlas_tile(fg, opts, 64)
+    assert result.size == (64, 64)
+    # Over 1.0 gets clamped to 1.0.
+    opts = icon_compose.IconComposeOptions(background=bgs[0], foreground_scale=2.0)
+    result = icon_compose.compose_atlas_tile(fg, opts, 64)
+    assert result.size == (64, 64)

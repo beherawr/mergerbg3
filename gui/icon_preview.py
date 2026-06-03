@@ -109,6 +109,30 @@ class IconCosmeticPanel(QGroupBox):
         fade_widget.setLayout(fade_row)
         controls_form.addRow("Tooltip fade:", fade_widget)
 
+        # Icon size on hotbar tile: how big the user's artwork is
+        # inside the runic-frame background. Defaults to 100% (fills
+        # the tile edge to edge, matching pre-feature behaviour and
+        # what works for line-art-style icons that don't need inset).
+        # Forged icons with their built-in glow halo often look
+        # better at ~70% so the frame remains visible around them.
+        # Only meaningful when a background is selected; we don't
+        # gray it out because users might toggle the background on
+        # and off and we want the slider position to persist.
+        self.icon_size_slider = QSlider(Qt.Horizontal)
+        self.icon_size_slider.setRange(30, 100)
+        self.icon_size_slider.setValue(100)
+        self.icon_size_slider.setTickPosition(QSlider.TicksBelow)
+        self.icon_size_slider.setTickInterval(10)
+        self.icon_size_slider.valueChanged.connect(self._on_icon_size_changed)
+        self.icon_size_value = QLabel("100%")
+        self.icon_size_value.setMinimumWidth(70)
+        size_row = QHBoxLayout()
+        size_row.addWidget(self.icon_size_slider, 1)
+        size_row.addWidget(self.icon_size_value)
+        size_widget = QWidget()
+        size_widget.setLayout(size_row)
+        controls_form.addRow("Icon size:", size_widget)
+
         controls_col.addLayout(controls_form)
         controls_col.addStretch(1)
         layout.addLayout(controls_col, 1)
@@ -180,9 +204,15 @@ class IconCosmeticPanel(QGroupBox):
         """
         bg = self.bg_combo.currentData()  # BackgroundChoice or None
         fade = self.fade_slider.value() / 100.0
+        # The slider ranges 30..100 (percent); convert to 0.3..1.0.
+        # 100% is the default (no inset, fills the tile) and produces
+        # output byte-identical to the pre-slider behaviour, so a user
+        # who never touches the slider sees no difference.
+        icon_scale = self.icon_size_slider.value() / 100.0
         return icon_compose.IconComposeOptions(
             background=bg if isinstance(bg, icon_compose.BackgroundChoice) else None,
             tooltip_fade=fade,
+            foreground_scale=icon_scale,
         )
 
     def set_visible_for_family(self, family: IconFamily) -> None:
@@ -199,6 +229,17 @@ class IconCosmeticPanel(QGroupBox):
             self.fade_value.setText("0%  (off)")
         else:
             self.fade_value.setText(f"{val}%")
+        self._refresh_preview()
+
+    def _on_icon_size_changed(self, val: int) -> None:
+        # The "(fills)" annotation at 100% makes the default state
+        # obvious - the slider position alone doesn't communicate
+        # which end is the default. Below 100% we just show the
+        # percent; the visual preview is the real feedback.
+        if val == 100:
+            self.icon_size_value.setText("100%  (fills)")
+        else:
+            self.icon_size_value.setText(f"{val}%")
         self._refresh_preview()
 
     def _refresh_preview(self) -> None:

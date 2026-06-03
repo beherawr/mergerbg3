@@ -1063,11 +1063,16 @@ def _add_atlas_icon(
         )
     )
     if compose_options.applies_background:
+        scale_pct = int(round(compose_options.foreground_scale * 100))
+        if scale_pct < 100:
+            size_clause = f" at {scale_pct}% icon size inside the frame"
+        else:
+            size_clause = ""
         result.notes.append(
             f"Applied background {compose_options.background.label!r} "
-            f"to the 64x64 hotbar tile. (Controller and tooltip icons "
-            f"don't get a background  -  that matches what reference "
-            f"mods ship.)"
+            f"to the 64x64 hotbar tile{size_clause}. (Controller and "
+            f"tooltip icons don't get a background  -  that matches "
+            f"what reference mods ship.)"
         )
     if compose_options.applies_fade:
         pct = int(round(compose_options.tooltip_fade * 100))
