@@ -74,7 +74,7 @@ def test_gts_categorized_as_virtual_texture_asset(tmp_path):
 
 def test_other_paks_unaffected_still_bank_lsf(tmp_path):
     """The VTB-specific rule mustn't accidentally swallow other PAK
-    folders' _merged.lsf — those should still classify as BANK_LSF."""
+    folders' _merged.lsf  -  those should still classify as BANK_LSF."""
     mod_folder = "TestMod"
     root = tmp_path
     file_path = (root / "Public" / mod_folder / "Content"
@@ -280,8 +280,8 @@ def test_two_mods_with_identical_gts_dedup_correctly(tmp_path):
     VTBs (which reference the file by name) still resolve to that
     surviving file.
 
-    Earlier versions of this test asserted the opposite — that .gts
-    should rename on collision — based on a wrong assumption about
+    Earlier versions of this test asserted the opposite  -  that .gts
+    should rename on collision  -  based on a wrong assumption about
     how the VTB referenced its tilesets. That assumption was disproved
     by inspecting a real merged mod's VTB: it stores UUIDs, not paths.
     """
@@ -307,7 +307,7 @@ def test_two_mods_with_identical_gts_dedup_correctly(tmp_path):
         f"Expected one .gts file (the original name preserved); got: "
         f"{gts_files}. If you see a renamed copy like 'newTileset_2.gts', "
         f"the rename-on-collide logic is mistakenly active for "
-        f"VIRTUAL_TEXTURE_ASSET — that would break the VTB → on-disk "
+        f"VIRTUAL_TEXTURE_ASSET  -  that would break the VTB → on-disk "
         f"reference, which is keyed by filename."
     )
 
@@ -467,7 +467,7 @@ def test_bank_lsf_sourcefile_remapped_on_mod_folder_rename(tmp_path):
     happens to resolve the asset through the stale path (since
     Glasses scans every mod, not just the one whose VTB references
     it). The bug only becomes visible once the input mod is removed
-    from the workspace — at which point meshes render BLACK.
+    from the workspace  -  at which point meshes render BLACK.
 
     We mock divine here (the real round-trip needs the actual
     divine.exe + .NET runtime) but assert that BANK_LSF goes THROUGH
@@ -494,7 +494,7 @@ def test_bank_lsf_sourcefile_remapped_on_mod_folder_rename(tmp_path):
     )
 
     # Count whether _remap_binary_lsf gets called. With the fix, it
-    # does (and may return False on the fake LSF, that's fine — what
+    # does (and may return False on the fake LSF, that's fine  -  what
     # matters is the call happens). Without the fix, BANK_LSF goes
     # straight to verbatim copy and the function is never called.
     call_count = {"n": 0}

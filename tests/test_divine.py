@@ -245,7 +245,7 @@ def test_bundled_divine_finds_one_folder_layout(monkeypatch, tmp_path):
 
 def test_find_divine_prefers_bundled_when_no_explicit_path(monkeypatch, tmp_path):
     """With no explicit path and a bundled copy available, find_divine
-    returns the bundled copy — even if divine.exe is on PATH. The user
+    returns the bundled copy  -  even if divine.exe is on PATH. The user
     shouldn't get a stale PATH version when we shipped a known-good one."""
     import sys
     bundled = tmp_path / "tools" / "lslib" / "divine.exe"

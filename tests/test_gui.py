@@ -508,7 +508,7 @@ def test_default_folder_uses_sanitized_display_name_and_full_uuid(qapp):
     assert folder.endswith(f"_{uuid}")
     # The sanitized-name portion comes from "<a.name> + <b.name>".
     # The exact A/B display names depend on fixtures, but the format
-    # is "Sanitized_Plus_Sanitized_<uuid>" or similar — we assert the
+    # is "Sanitized_Plus_Sanitized_<uuid>" or similar  -  we assert the
     # shape rather than exact contents.
     name_part = folder[: -(len(uuid) + 1)]
     assert name_part, "Folder name should have a non-empty name prefix"
@@ -520,7 +520,7 @@ def test_default_folder_uses_sanitized_display_name_and_full_uuid(qapp):
 
 def test_sanitize_for_folder_name_collapses_special_chars(qapp):
     """Verify the sanitizer turns "WeaponsOfWar + FantasyWeapons" into
-    "WeaponsOfWar_FantasyWeapons" — runs of non-alphanumeric become a
+    "WeaponsOfWar_FantasyWeapons"  -  runs of non-alphanumeric become a
     single underscore and leading/trailing underscores are stripped."""
     from gui.wizard import _sanitize_for_folder_name
     assert _sanitize_for_folder_name("WeaponsOfWar + FantasyWeapons") == "WeaponsOfWar_FantasyWeapons"
@@ -1006,7 +1006,7 @@ def test_add_icon_dialog_type_hint_changes_per_family(qapp, tmp_path):
     ar_hint = dlg.type_hint.text()
     dlg.type_combo.setCurrentText("Portrait")
     portrait_hint = dlg.type_hint.text()
-    # ATLAS hint is intentionally empty — the cosmetic-options panel
+    # ATLAS hint is intentionally empty  -  the cosmetic-options panel
     # and preview right below the form already make it obvious what'll
     # be written, and the earlier prose was overexplaining a simple
     # case. The non-ATLAS families still have informative hints

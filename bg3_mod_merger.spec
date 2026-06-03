@@ -40,7 +40,7 @@ block_cipher = None
 # core.divine._bundled_divine_path() finds it from sys._MEIPASS.
 #
 # If the directory doesn't exist (e.g. build-from-fresh-checkout
-# without CI), we still produce a working exe — divine just won't be
+# without CI), we still produce a working exe  -  divine just won't be
 # bundled. core.divine.find_divine falls through to PATH lookup and
 # the user can configure their own divine.exe in Settings, the way
 # the pre-bundle release behaved.

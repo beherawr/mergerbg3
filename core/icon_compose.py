@@ -3,12 +3,12 @@
 The Add Icon dialog supports two cosmetic treatments authors typically
 do by hand in an image editor:
 
-  1. **Hotbar background** — composite the icon over a stock 144x144
+  1. **Hotbar background**  -  composite the icon over a stock 144x144
      runic-frame image so it has the same visual style as base-game
      spell/skill icons. The atlas tile (64x64) is then derived by
      downscaling the composited 144x144 result.
 
-  2. **Tooltip fade** — apply a radial alpha falloff to the 380x380
+  2. **Tooltip fade**  -  apply a radial alpha falloff to the 380x380
      tooltip artwork so the edges blend into the dark tooltip popup
      background instead of being a hard rectangle.
 
@@ -77,7 +77,7 @@ def _humanize_filename(stem: str) -> str:
     Some files don't follow camelCase or _bg suffix conventions
     (``itembg1.png``, ``actionPassive_bg.DDS``, ``heaingPassive_bg.DDS``);
     the heuristic does a best-effort transform and the result is good
-    enough for a dropdown — users can still recognize what each maps
+    enough for a dropdown  -  users can still recognize what each maps
     to.
     """
     import re
@@ -110,7 +110,7 @@ def list_backgrounds() -> list[BackgroundChoice]:
     by display label, suitable for populating a dropdown. The caller
     is responsible for prepending a "None / no background" entry
     (we don't include it here because the dropdown widget treats it
-    specially — a None selection isn't a real ``BackgroundChoice``).
+    specially  -  a None selection isn't a real ``BackgroundChoice``).
 
     Accepts ``.png``, ``.PNG``, ``.dds``, ``.DDS`` files only; ignores
     anything else (a stray README, a thumbs file, ...).
@@ -160,7 +160,7 @@ class IconComposeOptions:
 
     Attributes:
         background: Choice of stock background to composite under the
-            icon. ``None`` (the default) means no background — paste
+            icon. ``None`` (the default) means no background  -  paste
             the user's PNG on transparent canvas as before.
         tooltip_fade: Strength of the radial alpha falloff applied to
             the 380x380 tooltip image. 0.0 (the default) means no
@@ -204,7 +204,7 @@ def compose_atlas_tile(
       3. Alpha-composite the foreground over the canvas.
 
     If no background is selected, this degrades to "resize foreground
-    to target_px" — the same operation the pre-feature code performed.
+    to target_px"  -  the same operation the pre-feature code performed.
     Callers can keep the no-background fast path by checking
     ``options.applies_background`` and skipping this helper entirely,
     but calling it with no background is still correct.
@@ -318,7 +318,7 @@ def compose_tooltip(
       1. Resize the foreground to target_px.
       2. If a fade is configured, multiply the foreground's alpha
          channel by a radial mask so the edges blend out smoothly.
-         (We do NOT also apply a background here — tooltips in BG3
+         (We do NOT also apply a background here  -  tooltips in BG3
          render against the popup's dark gradient, not against a
          per-icon background frame. Real reference mods like nightb
          confirm this: their Tooltips/Icons/*.DDS files have

@@ -218,7 +218,7 @@ class WorkspacePage(QWizardPage):
              download page instead of leaving them with a cryptic
              "command failed" error.
         """
-        # The UI no longer has a divine path field — LSLib is bundled.
+        # The UI no longer has a divine path field  -  LSLib is bundled.
         # We still honour settings.divine_path for advanced users who
         # edit settings.json directly to override the bundled copy,
         # which is why this isn't hardcoded to None.
@@ -235,7 +235,7 @@ class WorkspacePage(QWizardPage):
                 report_lines.append(f"Quotes stripped: {normalized!r}")
         else:
             report_lines.append(
-                "(No override configured — testing the bundled "
+                "(No override configured  -  testing the bundled "
                 "copy of LSLib that ships with this app.)"
             )
 
@@ -269,7 +269,7 @@ class WorkspacePage(QWizardPage):
             return
 
         # Functional probe: actually invoke divine. This catches the
-        # case where the executable exists but can't start — the most
+        # case where the executable exists but can't start  -  the most
         # common cause being missing .NET 8 Desktop Runtime.
         import subprocess
         try:
@@ -819,7 +819,12 @@ class AddIconDialog(QDialog):
         self.name_edit.textChanged.connect(self._update_ok_enabled)
         form.addRow("Icon name:", self.name_edit)
 
-        # PNG picker: a read-only field + Browse button.
+        # PNG picker: a read-only field + Browse + Forge buttons.
+        # "Browse..." picks an existing PNG from disk; "Forge..." opens
+        # a sub-dialog that lets the user search the web or load a
+        # plain image, stylize it with the BG3 emissive look, and
+        # return a temp PNG that becomes this field's value. Either way
+        # the rest of icon_add sees the same thing: a PNG path.
         png_row = QHBoxLayout()
         self.png_edit = QLineEdit()
         self.png_edit.setReadOnly(True)
@@ -828,6 +833,14 @@ class AddIconDialog(QDialog):
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse_png)
         png_row.addWidget(browse)
+        forge_btn = QPushButton("Forge…")
+        forge_btn.setToolTip(
+            "Open the Icon Forge: search clip/line art on the web (or "
+            "load your own), then stylize it with the BG3 glowing-icon "
+            "look. The result becomes the Source PNG."
+        )
+        forge_btn.clicked.connect(self._forge_icon)
+        png_row.addWidget(forge_btn)
         png_widget = QWidget()
         png_widget.setLayout(png_row)
         form.addRow("Source PNG:", png_widget)
@@ -925,6 +938,30 @@ class AddIconDialog(QDialog):
             # Push the new source into the preview panel so it
             # immediately renders the live thumbnails. Cheap operation;
             # we don't worry about debouncing.
+            if hasattr(self, "cosmetic_panel"):
+                self.cosmetic_panel.set_source_png(self._png_path)
+            self._update_ok_enabled()
+
+    def _forge_icon(self) -> None:
+        """Open the Icon Forge sub-dialog. The user searches the web
+        or loads a local image, stylizes it with the BG3 glowing-icon
+        look, and confirms. The forge writes the stylized PNG to a
+        temp directory and hands back the path; from there it slots
+        into the same self._png_path slot as the Browse... button, so
+        every downstream piece (cosmetic preview, add_icon pipeline,
+        atlas writer) sees a normal PNG.
+
+        Imported lazily so the dialog file (which pulls in Qt
+        ColorDialog and image-fetch helpers) doesn't load unless the
+        user opens the forge. Keeps the main wizard startup quick."""
+        from .icon_forge_dialog import IconForgeDialog
+        dlg = IconForgeDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            path = dlg.result_path()
+            if path is None:
+                return
+            self._png_path = Path(path)
+            self.png_edit.setText(str(path))
             if hasattr(self, "cosmetic_panel"):
                 self.cosmetic_panel.set_source_png(self._png_path)
             self._update_ok_enabled()
@@ -1459,7 +1496,7 @@ class RunPage(QWizardPage):
         # user has in settings.divine_path (may be empty). find_divine
         # treats empty/None as "find the bundled LSLib copy", which is
         # what every normal user wants since we removed the divine
-        # path UI field — LSLib is bundled. Before that fix, the
+        # path UI field  -  LSLib is bundled. Before that fix, the
         # wizard short-circuited divine setup on empty path, which
         # meant binary LSF files like metadata.lsf and
         # VirtualTextureBank got dropped during merging even though
@@ -1479,7 +1516,7 @@ class RunPage(QWizardPage):
         except Exception as e:
             override_display = (
                 repr(divine_path_setting) if divine_path_setting
-                else "(none — using bundled)"
+                else "(none  -  using bundled)"
             )
             # We used to silently fall back to no-divine mode here,
             # but that hid the real cause of "virtual textures are
@@ -1660,7 +1697,7 @@ class ResultPage(QWizardPage):
                 if len(file_overlaps) > 20:
                     lines.append(f"  … and {len(file_overlaps) - 20} more")
 
-        # Surface global notes — currently used for cases like "VTB
+        # Surface global notes  -  currently used for cases like "VTB
         # binary couldn't be remapped because divine.exe wasn't
         # configured" or "divine round-trip failed mid-merge". Without
         # this, users would see VTB-related symptoms in-game (textures

@@ -236,7 +236,7 @@ def find_divine(explicit_path: Path | str | None = None) -> Path:
         # "Copy as path" produces these). Don't touch internal quotes.
         if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
             raw = raw[1:-1].strip()
-        # An empty string after normalizing means "not actually configured" —
+        # An empty string after normalizing means "not actually configured"  - 
         # fall through to bundled/PATH lookup rather than raising on
         # the empty path.
         if raw:

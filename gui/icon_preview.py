@@ -68,7 +68,7 @@ class IconCosmeticPanel(QGroupBox):
     # don't use None as the dropdown data because QComboBox prefers
     # a real string key; this sentinel signals "no background" to
     # the options() builder.
-    _NO_BG_LABEL = "(None — no background)"
+    _NO_BG_LABEL = "(None  -  no background)"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Cosmetic options (preview)", parent)
@@ -163,7 +163,7 @@ class IconCosmeticPanel(QGroupBox):
             try:
                 self._source = Image.open(png_path).convert("RGBA")
             except Exception:
-                # Stay silent — the dialog will fail more loudly when
+                # Stay silent  -  the dialog will fail more loudly when
                 # the user clicks Add and the same load fails inside
                 # icon_add.add_icon. Showing a load error here would
                 # double-up.

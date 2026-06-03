@@ -89,7 +89,7 @@ def _remap_binary_lsf(
     Returns a (success, error_message) tuple:
       - (True, None)          on success
       - (False, None)         when ``divine`` is None (caller decides
-                              whether to warn — for some categories,
+                              whether to warn  -  for some categories,
                               verbatim copy is fine)
       - (False, str)          when divine is available but the round-trip
                               failed; the caller should surface this in
@@ -583,7 +583,7 @@ def _plan_remaps(
         # Cover the common path forms a Larian file uses. Generated/Public/
         # is here because anything in a mod's text content that refers
         # back to baked virtual-texture asset paths will need rewriting
-        # too — even though the VTB itself stores UUIDs (not paths),
+        # too  -  even though the VTB itself stores UUIDs (not paths),
         # other code can legitimately reference Generated/Public/<mod>/.
         for prefix in (
             "Public/", "Mods/", "Editor/Mods/", "Projects/",
@@ -839,7 +839,7 @@ _RENAME_ON_COLLIDE_CATEGORIES: frozenset[FileCategory] = frozenset({
 # Two mods that happen to ship files with the same UUID name will
 # have byte-identical content (toolkit-deterministic builds from the
 # same source TIFs), so the implicit dedup of "drop B's copy when A's
-# is already there" is the correct behavior — neither file changes.
+# is already there" is the correct behavior  -  neither file changes.
 
 # IMAGE_ASSET (mod_publish_logo.png, thumbnail.png) is deliberately NOT in
 # the rename-on-collide set: those are looked up by *fixed path* by the
@@ -1144,13 +1144,13 @@ def _emit_single(
         # TextureBank / VisualBank / MaterialBank / etc. that the
         # Toolkit splits across Content/[PAK]_*/  <uuid>.lsf files,
         # one Resource entry per file. Each Resource has a SourceFile
-        # attribute pointing at Public/<mod_folder>/Assets/... — if
+        # attribute pointing at Public/<mod_folder>/Assets/...  -  if
         # the mod folder is renamed during merge, that SourceFile
         # needs to be rewritten or the engine looks for the asset
         # under the old folder name. With the original input mod
         # still installed, the toolkit happens to resolve the asset
         # there (because Glasses scans every mod, not just the one
-        # whose VTB references it) — which is why the bug was hidden
+        # whose VTB references it)  -  which is why the bug was hidden
         # for whichever mod's input was still in the workspace. With
         # the input mod removed, the asset isn't reachable and the
         # mesh renders black.

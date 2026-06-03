@@ -445,7 +445,7 @@ class TestAtlasFamily:
         """Name and Template both equal the atlas DDS stem (e.g.
         'newAtlas' for newAtlas.dds, 'newAtlas_2' for the overflow
         atlas). nightb uses 'newAtlas'; mysticw uses 'ArcaneVanguardAtlas'
-        for its renamed atlas — Name follows the DDS file."""
+        for its renamed atlas  -  Name follows the DDS file."""
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 400)
         icon_add.add_icon(
@@ -496,7 +496,7 @@ class TestAtlasFamily:
 
     def test_readd_does_not_proliferate_texturebank_files(self, tmp_path):
         """Adding multiple icons to the same atlas must not create
-        duplicate TextureBank entries — only ONE TB Resource exists
+        duplicate TextureBank entries  -  only ONE TB Resource exists
         per atlas no matter how many icons land in it."""
         data_root = _mod_skeleton(tmp_path)
         png = _make_png(tmp_path / "src.png", 100)

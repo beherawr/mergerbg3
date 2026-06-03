@@ -70,7 +70,7 @@ class FileCategory(Enum):
     #   - ``.gts``  tile-set binaries (one per tileset)
     #   - ``.gtp``  tile-page binaries (mips + per-channel pages)
     #   - ``.gtex`` per-texture metadata blobs
-    # Filenames ARE the identity here — the VirtualTextureBank LSF
+    # Filenames ARE the identity here  -  the VirtualTextureBank LSF
     # references each tileset by its UUID-derived filename
     # (``TileSetFileName="<UUID>"`` matches ``<UUID>.gts``), and the
     # toolkit-generated ``GTexFileName`` matches the per-texture
@@ -247,7 +247,7 @@ class Project:
         # excludes files belonging to other mods sharing the same root.
         #
         # ``Generated/Public/<mod>/`` is the OUTPUT of the Toolkit's
-        # build pipeline — primarily ``.gts``/``.gtp``/``.gtex``
+        # build pipeline  -  primarily ``.gts``/``.gtp``/``.gtex``
         # virtual-texture data plus baked ``.GR2`` model copies. The
         # game's runtime resolves VirtualTextureBank references
         # (TileSetFileName + GTexFileName) through this directory. We
@@ -255,7 +255,7 @@ class Project:
         # the merger doesn't carry the Generated/ tree over to the
         # merged mod, the VTB ends up pointing at filenames that don't
         # exist on disk and the game renders the affected meshes
-        # black — even though the VTB itself is correctly merged.
+        # black  -  even though the VTB itself is correctly merged.
         files: list[CatalogedFile] = []
         mod_subtrees = [
             root / "Editor" / "Mods" / mod_folder_name,
@@ -508,9 +508,9 @@ def _categorize(
 
     # Virtual texture data the Toolkit bakes into Generated/Public/
     # <Mod>/VirtualTextures/:
-    #   .gts   — tileset binaries  (one per VirtualTexture resource)
-    #   .gtp   — tile pages        (mip + per-channel data for a tileset)
-    #   .gtex  — per-texture metadata blobs
+    #   .gts    -  tileset binaries  (one per VirtualTexture resource)
+    #   .gtp    -  tile pages        (mip + per-channel data for a tileset)
+    #   .gtex   -  per-texture metadata blobs
     # Filenames ARE the identity: each one's name (a UUID or content
     # hash) is what the VirtualTextureBank references in its
     # TileSetFileName / GTexFileName attributes. Renaming any of these

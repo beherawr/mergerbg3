@@ -290,7 +290,7 @@ def test_add_icon_with_background_writes_solid_alpha_to_controller(tmp_path):
         _meta.ModMeta(uuid=_meta.generate_uuid(), folder="M", name="M", author="t"),
         data_root / "Mods" / "M" / "meta.lsx",
     )
-    # Foreground with a transparent rim — the same shape we used for
+    # Foreground with a transparent rim  -  the same shape we used for
     # other tests. If background got composited under it, the rim
     # would become opaque (filled with bg).
     fg = Image.new("RGBA", (380, 380), (0, 0, 0, 0))
@@ -330,7 +330,7 @@ def test_add_icon_with_background_writes_solid_alpha_to_controller(tmp_path):
     # background were composited in, transparent fraction would be ~0%.
     assert transparent_fraction > 0.5, (
         f"Controller DDS has only {transparent_fraction:.1%} fully-transparent "
-        f"pixels. Expected >50% — if you see ~0%, the background got "
+        f"pixels. Expected >50%  -  if you see ~0%, the background got "
         f"incorrectly composited into the controller icon. The background "
         f"should ONLY go on the 64x64 hotbar tile inside the atlas."
     )

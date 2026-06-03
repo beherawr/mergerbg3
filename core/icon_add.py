@@ -139,7 +139,7 @@ ICON_TYPES: dict[str, IconTypeSpec] = {
 TOOLTIP_PX = 380
 CONTROLLER_PX = 144
 
-# Hotbar atlas geometry: matches what nightb and mysticw ship — 512x512
+# Hotbar atlas geometry: matches what nightb and mysticw ship  -  512x512
 # DDS organized as an 8x8 grid of 64x64 cells (64 slots per atlas). When
 # a mod needs more than 64 hotbar-atlas icons, the tool auto-overflows
 # into a second atlas (newAtlas_2.dds + Icons_<mod>_2.lsx), and so on.
@@ -147,7 +147,7 @@ ATLAS_PX = 512
 ICON_PX = 64
 GRID = ATLAS_PX // ICON_PX    # 8 columns and rows
 SLOTS = GRID * GRID           # 64 slots per atlas
-UV_STEP = ICON_PX / ATLAS_PX  # 0.125 — UV span of one tile
+UV_STEP = ICON_PX / ATLAS_PX  # 0.125  -  UV span of one tile
 
 # Half-pixel inset on each UV side. Prevents adjacent tiles from
 # bleeding into each other when the engine samples at smaller mip
@@ -262,7 +262,7 @@ def _lowres_size(full_w: int, full_h: int) -> tuple[int, int]:
 
     Third-party class mods (nightb, mysticw) consistently store
     AssetsLowRes copies at roughly half the Assets resolution. The exact
-    pairing isn't always /2 — both real mods round tooltip 380 to 192
+    pairing isn't always /2  -  both real mods round tooltip 380 to 192
     (not 190), which matches BG3's vanilla low-res atlas conventions.
     For everything else, exact half. For odd numbers (e.g. 144/2=72,
     300/2=150) the integer division is fine.
@@ -282,7 +282,7 @@ def _write_dds_pair(
 
     Per cross-checking nightb and mysticw (two independent third-party
     class mods on Nexus), AssetsLowRes/ files are genuinely
-    lower-resolution — typically half the Assets/ dimensions. The
+    lower-resolution  -  typically half the Assets/ dimensions. The
     earlier Class_RogueKira observation of byte-identical copies was an
     author-specific shortcut, not the convention.
     """
@@ -511,7 +511,7 @@ def _register_in_metadata(
     (result.files_updated if existing_source is not None else result.files_written).append(out_path)
     if not wrote_binary:
         # Distinguish "user never configured divine" from "user configured
-        # divine but the path doesn't resolve" — the second case has hit
+        # divine but the path doesn't resolve"  -  the second case has hit
         # users who got an unhelpful "not configured" message even though
         # they had set a path in Settings.
         if divine_path:
@@ -672,7 +672,7 @@ def _new_full_uv_lsx(atlas_dds_relative: str, atlas_uuid: str) -> lsx.LsxDocumen
         and the toolkit may have been silently rejecting it.
 
     `atlas_dds_relative` should already be the mod-relative path
-    (`Assets/Textures/Icons/newAtlas.dds`) — see _add_atlas_icon.
+    (`Assets/Textures/Icons/newAtlas.dds`)  -  see _add_atlas_icon.
     """
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <save>
@@ -749,7 +749,7 @@ def _new_texturebank_lsx(
         kind; UI atlases are type 1).
       - ``SRGB``: ``False`` (icon atlases store linear data because
         the UI's icon shader handles sRGB conversion itself).
-      - ``Width`` / ``Height``: 512 / 512 — must match the actual DDS.
+      - ``Width`` / ``Height``: 512 / 512  -  must match the actual DDS.
       - ``Depth``: 1 (this is a 2D texture, not a 3D volume texture).
       - ``Streaming``: ``True`` (the engine pages tiles in and out).
     """
@@ -1047,7 +1047,7 @@ def _add_atlas_icon(
     # Controller icon (144) is intentionally NOT composited over a
     # background. Cross-checked against nightb (e.g.
     # PassiveFeature_ShadowforgedWeapon_NB438.DDS): controller icons
-    # at this size are 30-40% fully transparent — they're the raw
+    # at this size are 30-40% fully transparent  -  they're the raw
     # artwork on a transparent canvas, with no runic frame
     # composited under them. The frame appears on the 64x64 hotbar
     # tile only. Compositing the background here would produce a
@@ -1055,7 +1055,7 @@ def _add_atlas_icon(
     controller_img = src
     # Hotbar tile is composed inside the atlas-paste step (section 3),
     # because the paste needs to happen at slot-coords on the 512x512
-    # sheet — we just generate the 64x64 result here and hand it off.
+    # sheet  -  we just generate the 64x64 result here and hand it off.
     hotbar_tile = (
         icon_compose.compose_atlas_tile(src, compose_options, ICON_PX)
         if compose_options.applies_background else src.resize(
@@ -1066,7 +1066,7 @@ def _add_atlas_icon(
         result.notes.append(
             f"Applied background {compose_options.background.label!r} "
             f"to the 64x64 hotbar tile. (Controller and tooltip icons "
-            f"don't get a background — that matches what reference "
+            f"don't get a background  -  that matches what reference "
             f"mods ship.)"
         )
     if compose_options.applies_fade:
@@ -1154,7 +1154,7 @@ def _add_atlas_icon(
     # hotbar_tile is already 64x64, pre-composed at the top of this
     # function with any optional background under the icon. Pre-
     # composing at target size (instead of pasting src and then
-    # downscaling here) preserves the background frame's detail —
+    # downscaling here) preserves the background frame's detail  - 
     # downscaling a 144-with-frame composition to 64 would alias the
     # runic-frame strokes into mush.
     icon64 = hotbar_tile
@@ -1423,7 +1423,7 @@ def add_icon(
         divine_path: path to divine.exe, used to write binary .lsf files
             (metadata.lsf, Simple_Icons.lsf). If None or unconfigured,
             falls back to .lsf.lsx text forms.
-        compose_options: optional cosmetic post-processing — runic
+        compose_options: optional cosmetic post-processing  -  runic
             background under the hotbar tile, radial fade on the
             tooltip image. Default-constructed (or None) means no
             effects, identical to pre-feature behaviour. Only applies
