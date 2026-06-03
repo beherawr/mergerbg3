@@ -68,15 +68,17 @@ def _http_get_image(url: str, timeout: float = 30.0) -> Image.Image:
 
 
 def _search_openverse(query: str, page_size: int = 12) -> list[dict]:
-    """Run an Openverse search. We append 'line art silhouette icon' to
-    the user's query if they didn't include 'line' themselves, which
-    biases results toward the kind of art that styles well (clip art,
-    not photographs)."""
-    extra = " line art silhouette icon" if "line" not in query.lower() else ""
+    """Run an Openverse search.
+
+    We send the user's query verbatim and let them refine it. Earlier
+    versions auto-appended " line art silhouette icon" to bias toward
+    art that stylizes well, but in practice that 5-term query matched
+    zero results for normal inputs like "skull" or "apple". Trust the
+    user to add "line art" themselves if they want narrower results.
+    """
     params = {
-        "q": query + extra,
+        "q": query,
         "page_size": page_size,
-        "license_type": "all",
     }
     return _http_get_json(OPENVERSE_URL, params).get("results", [])
 
@@ -241,18 +243,23 @@ class IconForgeDialog(QDialog):
         col = QVBoxLayout()
         col.addWidget(self._heading("3. Stylize"))
 
-        # Color presets: grid of clickable colored buttons.
+        # Color presets: grid of clickable colored buttons. We don't
+        # tooltip the magic-school name on hover because the swatches
+        # are quick-pick shortcuts, not a vocabulary lesson: the user
+        # who wants a specific color picks by sight, and the user who
+        # wants something custom uses the Custom... button below
+        # (which opens Qt's full color picker with a wheel and hex
+        # input).
         col.addWidget(self._muted("Color"))
         preset_grid = QGridLayout()
         preset_grid.setSpacing(4)
-        for i, (name, hex_color) in enumerate(icon_forge.PRESETS):
+        for i, (_name, hex_color) in enumerate(icon_forge.PRESETS):
             btn = QPushButton()
             btn.setFixedSize(QSize(50, 28))
             btn.setStyleSheet(
                 f"QPushButton {{ background: {hex_color}; border: 1px solid #333; }}"
                 f"QPushButton:hover {{ border: 2px solid white; }}"
             )
-            btn.setToolTip(name)
             btn.clicked.connect(lambda _=False, h=hex_color: self._set_color(h))
             preset_grid.addWidget(btn, i // 4, i % 4)
         preset_widget = QWidget()

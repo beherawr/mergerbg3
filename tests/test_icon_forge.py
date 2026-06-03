@@ -221,3 +221,23 @@ def test_forge_dialog_slider_values_are_integers(qapp):
     assert dlg.glow_slider.value() == 220
     assert dlg.glow_size_slider.value() == 6
     assert dlg.contrast_slider.value() == 115
+
+
+def test_forge_dialog_preset_buttons_have_no_tooltip(qapp):
+    """We removed magic-school names from preset tooltips per
+    explicit user preference. Hovering a swatch should give nothing
+    rather than 'Fire' or 'Arcane' etc."""
+    from gui.icon_forge_dialog import IconForgeDialog
+    dlg = IconForgeDialog()
+    # Find all preset buttons (the QPushButton children inside the
+    # preset_grid with no text but a colored background).
+    from PySide6.QtWidgets import QPushButton
+    preset_buttons = [
+        b for b in dlg.findChildren(QPushButton)
+        if b.text() == "" and "background:" in b.styleSheet()
+    ]
+    # We have 8 presets in icon_forge.PRESETS.
+    assert len(preset_buttons) == 8
+    for b in preset_buttons:
+        assert b.toolTip() == "", \
+            f"Preset button should have no tooltip, got {b.toolTip()!r}"
