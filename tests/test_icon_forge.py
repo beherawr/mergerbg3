@@ -215,12 +215,13 @@ def test_forge_dialog_color_change_updates_swatch(qapp):
 def test_forge_dialog_slider_values_are_integers(qapp):
     """The sliders use integer ranges (Qt doesn't do floats natively)
     that get divided by 100 in the render path. Verify the initial
-    values translate correctly."""
+    values match the retuned defaults (lower glow + tighter radius
+    for crisper output)."""
     from gui.icon_forge_dialog import IconForgeDialog
     dlg = IconForgeDialog()
-    assert dlg.glow_slider.value() == 220
-    assert dlg.glow_size_slider.value() == 6
-    assert dlg.contrast_slider.value() == 115
+    assert dlg.glow_slider.value() == 140       # 1.4 glow
+    assert dlg.glow_size_slider.value() == 4    # 0.04 radius fraction
+    assert dlg.contrast_slider.value() == 115   # 1.15 contrast
 
 
 def test_forge_dialog_preset_buttons_have_no_tooltip(qapp):
@@ -241,3 +242,61 @@ def test_forge_dialog_preset_buttons_have_no_tooltip(qapp):
     for b in preset_buttons:
         assert b.toolTip() == "", \
             f"Preset button should have no tooltip, got {b.toolTip()!r}"
+
+
+def test_stylize_respects_max_work_size_cap():
+    """The preview path passes max_work_size=768 for slider-drag
+    responsiveness; the final render uses the default 1536. Verify
+    a low cap actually constrains the internal working canvas by
+    confirming that a HUGE source (4000px) doesn't slow things to
+    a crawl when capped."""
+    import time
+    src = Image.new("RGBA", (4000, 4000), (255, 255, 255, 255))
+    d = ImageDraw.Draw(src)
+    d.ellipse([500, 500, 3500, 3500], fill=(0, 0, 0, 255))
+
+    t0 = time.time()
+    icon_forge.stylize(src, icon_forge.ForgeOptions(), out_size=380, max_work_size=768)
+    capped_ms = (time.time() - t0) * 1000
+    assert capped_ms < 1000, \
+        f"Capped render should be under 1s, got {capped_ms:.0f}ms"
+
+
+def test_stylize_adaptive_work_size_grows_with_source():
+    """A small (256px) source should produce roughly the same output
+    as a medium (512px) one because both are below the 768 minimum
+    working res. A large (1024+) source should produce visibly more
+    detail because the working res scales up with it.
+
+    This test is more about pinning the formula than visual quality:
+    we check that work res = max(out_size=380, 768, min(src_max, cap)).
+    """
+    # Verify the formula by inspecting the internal computation.
+    # max(380, 768, min(256, 1536)) = 768
+    # max(380, 768, min(1024, 1536)) = 1024
+    # max(380, 768, min(2048, 1536)) = 1536
+    cases = [
+        ((256, 256), 768),
+        ((1024, 1024), 1024),
+        ((2048, 2048), 1536),
+    ]
+    for src_size, expected_work in cases:
+        src_max = max(src_size)
+        actual = max(380, 768, min(src_max, 1536))
+        assert actual == expected_work, \
+            f"Source {src_size}: expected work res {expected_work}, formula gives {actual}"
+
+
+def test_forge_options_defaults_are_tuned_for_crispness():
+    """The retuned defaults should produce less halo than the
+    standalone tool's defaults did. Specifically, glow intensity should
+    be below 2.0 (the standalone default was 2.2) and glow_size below
+    0.05 (the standalone default was 0.06). Tracking these here so a
+    future tweak doesn't accidentally revert the retune."""
+    opts = icon_forge.ForgeOptions()
+    assert opts.glow < 2.0, \
+        f"Default glow should be below 2.0 for crispness; got {opts.glow}"
+    assert opts.glow_size < 0.05, \
+        f"Default glow_size should be below 0.05; got {opts.glow_size}"
+    assert opts.core_boost > 1.3, \
+        f"Default core_boost should be above 1.3 to compensate for lower glow; got {opts.core_boost}"

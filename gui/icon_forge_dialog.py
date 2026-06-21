@@ -455,11 +455,16 @@ class IconForgeDialog(QDialog):
         cur_row.addStretch(1)
         col.addLayout(cur_row)
 
-        # Three sliders.
+        # Three sliders. Initial values match the ForgeOptions defaults
+        # (140 = 1.4 glow, 4 = 0.04 glow_size, 115 = 1.15 contrast).
+        # We retuned the defaults down from the original standalone
+        # tool to produce crisper line work and less dominant halo;
+        # users who want the heavier original look can crank Glow up
+        # to ~220, where the original defaults were.
         self.glow_slider = self._make_slider(col, "Glow intensity",
-                                             50, 400, 220)
+                                             50, 400, 140)
         self.glow_size_slider = self._make_slider(col, "Glow size",
-                                                  2, 18, 6)
+                                                  2, 18, 4)
         self.contrast_slider = self._make_slider(col, "Line contrast",
                                                   60, 220, 115)
 
@@ -712,17 +717,23 @@ class IconForgeDialog(QDialog):
         return None
 
     def _render(self) -> None:
+        """Re-render the preview pane at a modest working resolution
+        for slider-drag responsiveness. The user sees an approximation
+        of the final output here; the actual on-disk PNG is generated
+        at full working resolution by _accept_styled when they click
+        Use this. The difference is subtle on small bundled sources
+        (256px) and noticeable on user-loaded high-res sources, but
+        either way the preview reflects the right color/glow/contrast
+        choices."""
         if self._source is None:
             return
         try:
-            opts = icon_forge.ForgeOptions(
-                color_hex=self._color_hex,
-                glow=self.glow_slider.value() / 100.0,
-                glow_size=self.glow_size_slider.value() / 100.0,
-                contrast=self.contrast_slider.value() / 100.0,
-                force_invert=self._selected_lines_mode(),
+            opts = self._current_options()
+            # Preview cap: 768 keeps slider drags under ~100ms even on
+            # modest hardware. Final render uses a higher cap.
+            self._styled = icon_forge.stylize(
+                self._source, opts, out_size=380, max_work_size=768,
             )
-            self._styled = icon_forge.stylize(self._source, opts, out_size=380)
             # Composite on a checker so transparent areas are visible.
             checker = icon_forge.checker(380).convert("RGBA")
             display = Image.alpha_composite(checker, self._styled)
@@ -737,6 +748,18 @@ class IconForgeDialog(QDialog):
                 f"Couldn't apply stylization:\n{e}"
             )
 
+    def _current_options(self) -> "icon_forge.ForgeOptions":
+        """Build a ForgeOptions from the current control state. Used
+        by both the live preview and the final render so they stay in
+        sync (any slider change is reflected in both)."""
+        return icon_forge.ForgeOptions(
+            color_hex=self._color_hex,
+            glow=self.glow_slider.value() / 100.0,
+            glow_size=self.glow_size_slider.value() / 100.0,
+            contrast=self.contrast_slider.value() / 100.0,
+            force_invert=self._selected_lines_mode(),
+        )
+
     def _render_placeholder(self) -> None:
         # Show a checker with an instructional caption when nothing's loaded.
         checker = icon_forge.checker(380).convert("RGBA")
@@ -746,13 +769,25 @@ class IconForgeDialog(QDialog):
     # ---- Result delivery ---------------------------------------------------
 
     def _accept_styled(self) -> None:
-        """Write the styled image to a temp PNG and close the dialog."""
-        if self._styled is None:
+        """Re-render the icon at full working resolution, write to a
+        temp PNG, close the dialog. The preview pane uses a lower
+        working-resolution cap for slider-drag responsiveness, but
+        the icon we actually hand to icon_add should be the highest-
+        quality version we can produce - the user will see it at
+        380px in tooltips, where the extra detail is visible."""
+        if self._source is None or self._styled is None:
             return
         try:
+            self._set_status("Finalizing at full quality...")
+            opts = self._current_options()
+            # No max_work_size override here = use the stylize default
+            # cap of 1536, which lets the algorithm work at native
+            # source resolution up to that limit. Slower than the
+            # preview render but only runs once on click.
+            final = icon_forge.stylize(self._source, opts, out_size=380)
             tmpdir = tempfile.mkdtemp(prefix="bg3_forge_")
             out_path = Path(tmpdir) / "forged_icon.png"
-            self._styled.save(out_path, format="PNG")
+            final.save(out_path, format="PNG")
             self._result_path = out_path
             self.accept()
         except Exception as e:

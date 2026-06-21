@@ -44,14 +44,24 @@ PRESETS: list[tuple[str, str]] = [
 class ForgeOptions:
     """All knobs the user can turn in the forge sub-dialog.
 
-    Defaults match the standalone tool's defaults so the visual output
-    is the same as authors who used the prior bg3_icon_forge.py.
+    The default values were retuned after observing that the original
+    standalone-tool defaults produced too much halo for the variety of
+    sources users actually load (especially the bundled game-icons,
+    which already have rich internal detail that gets washed out by a
+    heavy glow). The current defaults aim for "crisp line work with a
+    modest halo"; users who want the heavier original look can crank
+    Glow up to ~2.2 with the slider.
+
+    Field-by-field values came from a sweep against a mix of icon
+    types (lightning bolt, skull, dragon orb, rune, shield) - the goal
+    was to find one default that looked acceptable across all of them
+    rather than great on one and terrible on another.
     """
     color_hex: str = "#39C5FF"     # any "#RRGGBB" or shorthand "#RGB"
-    glow: float = 2.2              # outer-glow intensity multiplier
-    glow_size: float = 0.06        # outer-glow radius as fraction of canvas size
+    glow: float = 1.4              # outer-glow intensity multiplier (was 2.2)
+    glow_size: float = 0.04        # outer-glow radius as fraction of canvas (was 0.06)
     contrast: float = 1.15         # line-mask contrast curve
-    core_boost: float = 1.3        # how bright the white-hot inner core is
+    core_boost: float = 1.5        # how bright the white-hot inner core is (was 1.3)
     force_invert: bool | None = None
     # ^ None = auto-detect (dark lines on light bg gets inverted); True
     #   forces "treat dark pixels as lines", False forces "treat light
@@ -114,6 +124,7 @@ def stylize(
     img: Image.Image,
     options: ForgeOptions = None,
     out_size: int = 380,
+    max_work_size: int = 1536,
 ) -> Image.Image:
     """Apply the BG3 emissive treatment and return a ``out_size``-square
     RGBA image. Defaults to 380x380, the tooltip-tier size, which is
@@ -122,9 +133,13 @@ def stylize(
 
     Algorithm overview:
 
-      1. Resize the source up to ~max(out_size, 512) for working
-         resolution. The extra resolution gives Gaussian blurs more
-         pixels to work with so the glow is smooth at final size.
+      1. Resize the source up to the working resolution. The working
+         resolution adapts to the source: small bundled icons (256px)
+         work at 768; user-loaded 1024+ sources work at their native
+         size up to ``max_work_size``. Higher working resolution gives
+         crisper output when the source has detail to preserve.
+         ``max_work_size`` lets callers cap it (the preview pane uses
+         a lower cap for slider-drag responsiveness).
       2. Extract an L-mode "ink mask" of where the lines are.
       3. Optionally lay down a dark vignette background (bg_mode=dark).
       4. Stack three colorized, blurred copies of the mask using SCREEN
@@ -144,7 +159,13 @@ def stylize(
         options = ForgeOptions()
 
     base = img.convert("RGBA")
-    work = max(out_size, 512)
+    # Adaptive working resolution. We want the working canvas to be
+    # at least big enough to give Gaussian blurs room (768px), but no
+    # bigger than the source actually provides detail for (no point
+    # working at 2048 from a 256px source). Cap at max_work_size to
+    # protect the preview pane's responsiveness.
+    src_max = max(base.size)
+    work = max(out_size, 768, min(src_max, max_work_size))
     base = ImageOps.contain(base, (work, work))
     sz = work
 
